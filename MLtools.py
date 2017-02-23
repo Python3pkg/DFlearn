@@ -14,7 +14,7 @@ import sklearn.linear_model as lm
 import xgboost as xgb
 import keras as kr
 
-__version__ = "0.15"
+__version__ = "0.15.1"
 __name__ = "MLtools"
 
 
@@ -181,10 +181,10 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
 ## Machine Learning Models
 
 
-def MDSingleReg(X, X_offset, Y, f_model = sm.OLS, par_model = {}, **kwargs):
+def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, **kwargs):
     par = {}
     par.update(par_model)
-    if X_offset:
+    if len(X_offset):
         cov = np.hstack([np.ones((len(Y), 1)), X_offset.values])
     else:
         cov = np.ones((len(Y), 1))
@@ -216,16 +216,16 @@ def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], ra
     '''
     par = {}
     par.update(par_model)
-    if(ic_offset):
+    if len(ic_offset):
         xt_offset = xt[ic_offset]
     else:
         xt_offset = None
     if par.get("family"):
-        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), xt_offset, yt, f_model = sm.GLM, par_model = par)
+        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.GLM, par_model = par)
         model = lm.LogisticRegression()
         model.intercept_ = 1/(1/np.mean(yt.values) - 1)
     else:
-        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), xt_offset, yt, f_model = sm.OLS, par_model = par)
+        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.OLS, par_model = par)
         model = lm.LinearRegression()
         model.intercept_ = np.mean(yt.values)
     if rank:
@@ -255,7 +255,7 @@ def MLstatsmodel(xt, yt, xv=None, yv=None, seed=0, f_model=sm.GLM, par_model={"f
     '''
     par = {}
     par.update(par_model)
-    if(ic_offset):
+    if len(ic_offset):
         par.update({"offset": xt.loc[:,ic_offset]})
     model = f_model(yt, xt.drop(ic_offset, axis=1).assign(_Int_=1).rename(columns={"_Int_": "(Intercept)"}), **par).fit()
     return(model)
@@ -333,11 +333,11 @@ def MDtrain(f_model, **kwargs):
     -------
     model : trained model
     '''
-    if(f_model.__name__ in ["GLM"]):
+    if f_model.__name__ in ["GLM"]:
         model = MLstatsmodel(f_model=f_model, **kwargs)
-    elif(f_model.__name__ in ['Sequential']):
+    elif f_model.__name__ in ['Sequential']:
         model = ANN(**kwargs)
-    elif(f_model.__name__ in ['MLsinglereg']):
+    elif f_model.__name__ in ['MLsinglereg']:
         model = MLsinglereg(**kwargs)
     else:
         model = MLmodel(f_model=f_model, **kwargs)
@@ -359,15 +359,15 @@ def MDpred(model, xv, ic_offset=[], **kwargs):
     yvp : DataFrame, predicted Y
     '''
     xvo = xv
-    if(ic_offset):
+    if len(ic_offset):
         xv = xv.drop(ic_offset, axis=1)
-    if(type(model).__name__ in ['GLMResultsWrapper']):
+    if type(model).__name__ in ['GLMResultsWrapper']:
         xv = xv.assign(_Int_ = 1).rename(columns={"_Int_": "(Intercept)"})
-    if(type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']):
+    if type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']:
         yvp = model.predict_proba(xv)[:,1]
-    elif((type(model).__name__ in ['GLMResultsWrapper']) & len(ic_offset)):
+    elif (type(model).__name__ in ['GLMResultsWrapper']) & len(ic_offset):
         yvp = model.predict(xv, offset=xvo.loc[:,ic_offset])
-    elif(type(model).__name__ in ['Sequential']):
+    elif type(model).__name__ in ['Sequential']:
         yvp = model.predict(xv.values)
     else:
         yvp = model.predict(xv)
@@ -375,7 +375,7 @@ def MDpred(model, xv, ic_offset=[], **kwargs):
     return(op)
 
 
-def MDweight(model, xt, **kwargs):
+def MDweight(model, xt, ic_offset=[], **kwargs):
     '''
     Use trained model and X to get variable weights
     
@@ -388,15 +388,15 @@ def MDweight(model, xt, **kwargs):
     -------
     op : Series, variable weights of the model
     '''
-    if(type(model).__name__ in ['Ridge', "Lasso"]):
-        op = pd.Series(model.coef_, index=xt.columns)
-    elif(type(model).__name__ in ['LogisticRegression']):
-        op = pd.Series(model.coef_[0], index=xt.columns)
-    elif(type(model).__name__ in ["RandomForestClassifier", "RandomForestRegressor"]):
-        op = pd.Series(model.feature_importances_, index=xt.columns)
-    elif(type(model).__name__ in ['Booster']):
+    if type(model).__name__ in ['Ridge', "Lasso"]:
+        op = pd.Series(model.coef_, index=xt.drop(ic_offset, axis=1).columns)
+    elif type(model).__name__ in ['LogisticRegression']:
+        op = pd.Series(model.coef_[0], index=xt.drop(ic_offset, axis=1).columns)
+    elif type(model).__name__ in ["RandomForestClassifier", "RandomForestRegressor"]:
+        op = pd.Series(model.feature_importances_, index=xt.drop(ic_offset, axis=1).columns)
+    elif type(model).__name__ in ['Booster']:
         op = pd.Series(model.get_score())
-    elif(type(model).__name__ in ["GLMResultsWrapper"]):
+    elif type(model).__name__ in ["GLMResultsWrapper"]:
         op = pd.concat([model.params, model.pvalues], axis=1, keys=["coef", "P-value"])
     else:
         op = pd.Series()
@@ -436,7 +436,7 @@ def roc(yv, yp, plot=False, **kwargs):
     op : DataFrame, elements of an ROC curve including: true positive ratio, false positive ratio, and threshold
     '''
     op = pd.DataFrame(dict(zip(*[["FPR", "TPR", "Threshold"], met.roc_curve(yv, yp)])))
-    if(plot):
+    if plot:
         op.set_index("FPR").plot(ylim=[0, 1], title="AUC: {:.4f}".format(met.auc(op["FPR"], op["TPR"])))
     return(op)
 
@@ -620,7 +620,7 @@ def MCVtest(df, ictypeL, mdpar, **kwargs):
     return(op)
 
 
-def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.log(x/(1-x)), f_loss=met.roc_auc_score):
+def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.log(x/(1-x)), f_loss=met.roc_auc_score, offset = False):
     '''
     Create a training-validation set from X, Y and cross-validation indices
     
@@ -636,6 +636,7 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.
         f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
     f_y : function, decide how to transform predicted Y
     f_loss : function, use to calculate loss, if not included, use the default option of function Loss
+    offset : bool, whether to use X_offset when building model for XL
     
     Returns
     -------
@@ -649,7 +650,10 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.
     print(op[-1])
     for X in XL:
         timestart = time.time()
-        md = CVmodel({"X": X, "Y": Y, "irts": irts, **mdpar})
+        if offset:
+            md = CVmodel({"X": X.join(X_offset), "Y": Y, "irts": irts, "ic_offset": X_offset.columns, **mdpar})
+        else:
+            md = CVmodel({"X": X, "Y": Y, "irts": irts, **mdpar})
         md_h1 = CVmodel({"X": md["yvpL"].join(X_h1_offset), "Y": Y, "irts": irts, **mdpar_offset, "ic_offset": "covar"})
         op.append([md["lossL"].mean(), md_h1["lossL"].mean()])
         print(op[-1], "Time: {:.2f} seconds".format(time.time()-timestart))
