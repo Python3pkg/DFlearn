@@ -14,7 +14,7 @@ import sklearn.linear_model as lm
 import xgboost as xgb
 import keras as kr
 
-__version__ = "0.15.2"
+__version__ = "0.15.3"
 __name__ = "MLtools"
 
 
@@ -344,7 +344,7 @@ def MDtrain(f_model, **kwargs):
     return(model)  
 
 
-def MDpred(model, xv, ic_offset=[], f_loss = None, **kwargs):
+def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwargs):
     '''
     Use trained model and validation X to predict Y
     
@@ -363,7 +363,7 @@ def MDpred(model, xv, ic_offset=[], f_loss = None, **kwargs):
         xv = xv.drop(ic_offset, axis=1)
     if type(model).__name__ in ['GLMResultsWrapper']:
         xv = xv.assign(_Int_ = 1).rename(columns={"_Int_": "(Intercept)"})
-    if (type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']) & (f_loss != met.zero_one_loss):
+    if (type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']) & (f_loss.__name__ in ["roc_auc_score"]):
         yvp = model.predict_proba(xv)[:,1]
     elif (type(model).__name__ in ['GLMResultsWrapper']) & len(ic_offset):
         yvp = model.predict(xv, offset=xvo.loc[:,ic_offset])
@@ -371,6 +371,8 @@ def MDpred(model, xv, ic_offset=[], f_loss = None, **kwargs):
         yvp = model.predict(xv.values)
     else:
         yvp = model.predict(xv)
+    if (f_loss.__name__ in ["roc_auc_score", "log_loss"]) and logit:
+        yvp = np.log(1/(1/yvp - 1))
     op = pd.DataFrame(yvp, index=xv.index)
     return(op)
 
@@ -620,7 +622,7 @@ def MCVtest(df, ictypeL, mdpar, **kwargs):
     return(op)
 
 
-def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.log(x/(1-x)), f_loss=met.roc_auc_score, offset = False):
+def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_loss=met.roc_auc_score, offset = False):
     '''
     Create a training-validation set from X, Y and cross-validation indices
     
@@ -634,7 +636,6 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.
         f_model : function, model to train
         par_model : dict, arguments to train f_model
         f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    f_y : function, decide how to transform predicted Y
     f_loss : function, use to calculate loss, if not included, use the default option of function Loss
     offset : bool, whether to use X_offset when building model for XL
     
@@ -644,16 +645,15 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_y=lambda x: np.
     '''
     op = []
     model_offset = MDtrain(xt = X_offset, yt = Y, xv = X_offset, yv = Y, **mdpar_offset)
-    X_h1_offset = f_y(MDpred(model_offset, X_offset)).rename(columns={0: "covar"})
-    op.append([np.mean([Loss(Y.loc[irts == i], np.repeat(Y.loc[irts != i].mean(), Y.loc[irts == i].shape[0]), f_loss) for i in np.unique(irts)]),
-               np.mean([Loss(Y.loc[irts == i], X_h1_offset.loc[irts == i].values, f_loss) for i in np.unique(irts)])])
+    X_h1_offset = MDpred(model_offset, X_offset, logit = True).rename(columns={0: "covar"})
+    op.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_h1_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0))
     print(op[-1])
     for X in XL:
         timestart = time.time()
         if offset:
-            md = CVmodel({"X": X.join(X_offset), "Y": Y, "irts": irts, "ic_offset": X_offset.columns, **mdpar})
+            md = CVmodel({"X": X.join(X_offset), "Y": Y, "irts": irts, "ic_offset": X_offset.columns, "logit": True, **mdpar})
         else:
-            md = CVmodel({"X": X, "Y": Y, "irts": irts, **mdpar})
+            md = CVmodel({"X": X, "Y": Y, "irts": irts, "logit": True, **mdpar})
         md_h1 = CVmodel({"X": md["yvpL"].join(X_h1_offset), "Y": Y, "irts": irts, **mdpar_offset, "ic_offset": "covar"})
         op.append([md["lossL"].mean(), md_h1["lossL"].mean()])
         print(op[-1], "Time: {:.2f} seconds".format(time.time()-timestart))
