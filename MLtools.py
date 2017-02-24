@@ -14,7 +14,7 @@ import sklearn.linear_model as lm
 import xgboost as xgb
 import keras as kr
 
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 __name__ = "MLtools"
 
 
@@ -344,7 +344,7 @@ def MDtrain(f_model, **kwargs):
     return(model)  
 
 
-def MDpred(model, xv, ic_offset=[], **kwargs):
+def MDpred(model, xv, ic_offset=[], f_loss = None, **kwargs):
     '''
     Use trained model and validation X to predict Y
     
@@ -363,7 +363,7 @@ def MDpred(model, xv, ic_offset=[], **kwargs):
         xv = xv.drop(ic_offset, axis=1)
     if type(model).__name__ in ['GLMResultsWrapper']:
         xv = xv.assign(_Int_ = 1).rename(columns={"_Int_": "(Intercept)"})
-    if type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']:
+    if (type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']) & (f_loss != met.zero_one_loss):
         yvp = model.predict_proba(xv)[:,1]
     elif (type(model).__name__ in ['GLMResultsWrapper']) & len(ic_offset):
         yvp = model.predict(xv, offset=xvo.loc[:,ic_offset])
