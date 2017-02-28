@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.4"
+__version__ = "0.15.5"
 __name__ = "MLtools"
 
 
@@ -217,7 +217,7 @@ def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], ra
     if len(ic_offset):
         xt_offset = xt[ic_offset]
     else:
-        xt_offset = None
+        xt_offset = []
     if par.get("family"):
         daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.GLM, par_model = par)
         model = lm.LogisticRegression()
@@ -648,11 +648,6 @@ def MMCVmodel(mdsetL, mdparL):
     '''
     mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
     return(mdLL)
-
-
-def MMCVanalysis(mdLL, nameL, fmd = lambda x: x["lossL"]):
-    op = pd.concat([pd.concat(map(fmd, i), keys=[j["namemd"] for j in i]) for i in mdLL], keys=nameL).reset_index().rename_axis({"level_0": "Data", "level_1": "Model", "level_2": "CV"}, axis=1)
-    return(op)
 
 def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.laplace.cdf, bounds = [(0,1), (0.1,10)], tol = 1e-7, seed = 1, plot = True, **kwargs):
     '''
