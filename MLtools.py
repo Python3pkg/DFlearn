@@ -11,10 +11,8 @@ import patsy as ps
 import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
-import xgboost as xgb
-import keras as kr
 
-__version__ = "0.15.3"
+__version__ = "0.15.4"
 __name__ = "MLtools"
 
 
@@ -286,36 +284,6 @@ def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par
     model.fit(xt, yt.iloc[:,0], **validpar(model.fit, {"eval_set": [(xv, yv.iloc[:,0])], 'verbose': False, **par_fit}))
     return(model)
 
-def ANN(xt, xv, yt, yv, seed=0, par_model={}, **kwargs):
-    '''
-    Train a neural network model of keras form
-    
-    Parameters
-    ----------
-    xt : DataFrame, training X set
-    xv : DataFrame, validation X set
-    yt : DataFrame, training Y set
-    yv : DataFrame, validation Y set
-    seed : int, random seed
-    par_model : dict, arguments to train f_model
-    
-    Returns
-    -------
-    model : trained model
-    '''
-    xt, xv, yt, yv = xt.values, xv.values, yt.values, yv.values
-    np.random.seed(seed)
-    par = {"seqL": [2*xt.shape[1], 
-                    [kr.layers.Activation, {"activation": "tanh"}], 
-                    [kr.layers.Dense, {"output_dim": 1}], 
-                    [kr.layers.Activation, {"activation": "sigmoid"}]], 
-           "optimizer": 'rmsprop', "nb_epoch": 1000, "batch_size": 32, "callbacks": [kr.callbacks.EarlyStopping(patience = 1)]}
-    par.update(par_model)
-    model = kr.models.Sequential([kr.layers.Dense(par["seqL"][0], input_dim=xt.shape[1])] + [i[0](**i[1]) for i in par["seqL"][1:]])
-    model.compile(optimizer = par["optimizer"], loss=par["loss"], metrics=['accuracy'])
-    model.fit(xt, yt, validation_data = [xv, yv], **validpar(model.fit, par))
-    return(model)
-
 
 ## Machine Learning Model Functions
 
@@ -333,11 +301,9 @@ def MDtrain(f_model, **kwargs):
     -------
     model : trained model
     '''
-    if f_model.__name__ in ["GLM"]:
+    if f_model.__name__ == "GLM":
         model = MLstatsmodel(f_model=f_model, **kwargs)
-    elif f_model.__name__ in ['Sequential']:
-        model = ANN(**kwargs)
-    elif f_model.__name__ in ['MLsinglereg']:
+    elif f_model.__name__ == 'MLsinglereg':
         model = MLsinglereg(**kwargs)
     else:
         model = MLmodel(f_model=f_model, **kwargs)
@@ -361,14 +327,12 @@ def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwa
     xvo = xv
     if len(ic_offset):
         xv = xv.drop(ic_offset, axis=1)
-    if type(model).__name__ in ['GLMResultsWrapper']:
+    if type(model).__name__ == 'GLMResultsWrapper':
         xv = xv.assign(_Int_ = 1).rename(columns={"_Int_": "(Intercept)"})
-    if (type(model).__name__ in ['LogisticRegression', 'RandomForestClassifier', 'XGBClassifier']) & (f_loss.__name__ in ["roc_auc_score"]):
+    if ((type(model).__name__ == 'LogisticRegression')|('Classifier' in type(model).__name__)) & (f_loss.__name__ in ["roc_auc_score"]):
         yvp = model.predict_proba(xv)[:,1]
-    elif (type(model).__name__ in ['GLMResultsWrapper']) & len(ic_offset):
+    elif (type(model).__name__ == 'GLMResultsWrapper') & len(ic_offset):
         yvp = model.predict(xv, offset=xvo.loc[:,ic_offset])
-    elif type(model).__name__ in ['Sequential']:
-        yvp = model.predict(xv.values)
     else:
         yvp = model.predict(xv)
     if (f_loss.__name__ in ["roc_auc_score", "log_loss"]) and logit:
@@ -396,8 +360,6 @@ def MDweight(model, xt, ic_offset=[], **kwargs):
         op = pd.Series(model.coef_[0], index=xt.drop(ic_offset, axis=1).columns)
     elif type(model).__name__ in ["RandomForestClassifier", "RandomForestRegressor"]:
         op = pd.Series(model.feature_importances_, index=xt.drop(ic_offset, axis=1).columns)
-    elif type(model).__name__ in ['Booster']:
-        op = pd.Series(model.get_score())
     elif type(model).__name__ in ["GLMResultsWrapper"]:
         op = pd.concat([model.params, model.pvalues], axis=1, keys=["coef", "P-value"])
     else:
@@ -441,6 +403,7 @@ def roc(yv, yp, plot=False, **kwargs):
     if plot:
         op.set_index("FPR").plot(ylim=[0, 1], title="AUC: {:.4f}".format(met.auc(op["FPR"], op["TPR"])))
     return(op)
+
 
 ## Cross-Validation
 
