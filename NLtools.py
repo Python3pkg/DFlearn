@@ -1,17 +1,16 @@
 import re
 import nltk
 
-__version__ = "0.1"
+__version__ = "0.1.1"
 __name__ = "NLtools"
 
-    
 class word_Normalizer():
     def __init__(self):
         self.model = nltk.stem.WordNetLemmatizer()
     def transform(self, s):
         if s[0].isalpha():
             if s.lower()[:4] == "http":
-                return("_http")
+                return("<url>")
             else:
                 return(self.model.lemmatize(self.model.lemmatize(re.sub(r'[^a-z]', '', s.lower())), "v"))
         else:
@@ -19,7 +18,7 @@ class word_Normalizer():
 
         
 class word_Tokenizer():
-    def __init__(self, word_normalizer = word_Normalizer):
+    def __init__(self):
         self.regex_str = [
             r'<[^>]+>', # HTML tags
             r'(?:@[\w_]+)', # @-mentions
@@ -31,9 +30,8 @@ class word_Tokenizer():
             r'(?:\S)' # anything else
         ]
         self.tokens_re = re.compile(r'('+'|'.join(self.regex_str)+')', re.VERBOSE | re.IGNORECASE)
-        self.model = word_normalizer()
-    def transform(self, s):
-        op = [self.model.transform(t) for t in self.tokens_re.findall(s)]
+    def transform(self, s, f_word_norm = lambda x: x):
+        op = [f_word_norm(t) for t in self.tokens_re.findall(s)]
         if not op:
             return(["_other"])
         return(op)
