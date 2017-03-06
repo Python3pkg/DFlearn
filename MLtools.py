@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.5"
+__version__ = "0.15.6"
 __name__ = "MLtools"
 
 
@@ -179,11 +179,15 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
 ## Machine Learning Models
 
 
-def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, **kwargs):
+def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offset = False, **kwargs):
     par = {}
     par.update(par_model)
     if len(X_offset):
         cov = np.hstack([np.ones((len(Y), 1)), X_offset.values])
+        if fix_offset:
+            model_cov = f_model(Y.values, cov, **par).fit()
+            par.update({"offset": np.dot(cov, model_cov.params)})
+            cov = np.ones((len(Y), 1))
     else:
         cov = np.ones((len(Y), 1))
     def fit(item):
@@ -336,7 +340,7 @@ def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwa
     else:
         yvp = model.predict(xv)
     if (f_loss.__name__ in ["roc_auc_score", "log_loss"]) and logit:
-        yvp = np.log(1/(1/yvp - 1))
+        yvp = np.log(1/(1/(yvp+1e-7) - 1))
     op = pd.DataFrame(yvp, index=xv.index)
     return(op)
 
@@ -609,7 +613,7 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_loss=met.roc_au
     op = []
     model_offset = MDtrain(xt = X_offset, yt = Y, xv = X_offset, yv = Y, **mdpar_offset)
     X_h1_offset = MDpred(model_offset, X_offset, logit = True).rename(columns={0: "covar"})
-    op.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_h1_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0))
+    op.append(np.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_h1_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0), 0))
     print(op[-1])
     for X in XL:
         timestart = time.time()
@@ -618,9 +622,9 @@ def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_loss=met.roc_au
         else:
             md = CVmodel({"X": X, "Y": Y, "irts": irts, "logit": True, **mdpar})
         md_h1 = CVmodel({"X": md["yvpL"].join(X_h1_offset), "Y": Y, "irts": irts, **mdpar_offset, "ic_offset": "covar"})
-        op.append([md["lossL"].mean(), md_h1["lossL"].mean()])
+        op.append([md["lossL"].mean(), md_h1["lossL"].mean(), md_h1["wL"].loc[0].groupby(level = 1).mean()["coef"]])
         print(op[-1], "Time: {:.2f} seconds".format(time.time()-timestart))
-    op = pd.DataFrame(op, columns=["X loss", "X+offset loss"])
+    op = pd.DataFrame(op, columns=["X loss", "X+offset loss", "X coef"])
     return(op)
 
 
