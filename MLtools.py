@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.9"
+__version__ = "0.16.0"
 __name__ = "MLtools"
 
 
@@ -437,12 +437,15 @@ def tree_set(tree_, max_depth = 5):
             node_set += node_lchild
             node_set += node_rchild
         return(node_set)
-    op = recurse_set(0, [], 1)
-    return(op)
+    return(recurse_set(0, [], 1))
 
-def MDforest_set(model, max_depth = 5):
-    op = pd.value_counts([tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)])
-    return(op)
+
+def MDforest_set(model, xt = None, max_depth = 5):
+    if xt is None:
+        return(pd.value_counts(tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)))
+    else:
+        ic_x_name = xt.columns.tolist()
+        return(pd.value_counts(tuple(ic_x_name[k] for k in j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)))
 
 
 ## Cross-Validation
