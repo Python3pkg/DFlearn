@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.6"
+__version__ = "0.15.7"
 __name__ = "MLtools"
 
 
@@ -362,12 +362,24 @@ def MDweight(model, xt, ic_offset=[], **kwargs):
         op = pd.Series(model.coef_, index=xt.drop(ic_offset, axis=1).columns)
     elif type(model).__name__ in ['LogisticRegression']:
         op = pd.Series(model.coef_[0], index=xt.drop(ic_offset, axis=1).columns)
-    elif type(model).__name__ in ["RandomForestClassifier", "RandomForestRegressor"]:
+    elif 'sklearn.ensemble' in type(model).__module__:
         op = pd.Series(model.feature_importances_, index=xt.drop(ic_offset, axis=1).columns)
     elif type(model).__name__ in ["GLMResultsWrapper"]:
         op = pd.concat([model.params, model.pvalues], axis=1, keys=["coef", "P-value"])
     else:
         op = pd.Series()
+    return(op)
+
+
+def MDweight_analysis(model, xt, **kwargs):
+    w = MDweight(model, xt, **kwargs)
+    if 'sklearn.ensemble' in type(model).__module__:
+        p0 = 1/len(w)
+        n_split = sum((i.tree_.feature != -2).sum() for i in np.array(model.estimators_).flatten())
+        op = w.to_frame("freq")
+        op["std"] = np.sqrt(w*(1-w)/n_split)
+        op["Z-score"] = (w - p0)/np.sqrt(p0*(1-p0)/n_split)
+        op["p-value"] = st.norm.cdf(-op["Z-score"])
     return(op)
 
 
@@ -589,42 +601,36 @@ def MCVtest(df, ictypeL, mdpar, **kwargs):
     return(op)
 
 
-def MCVoffsetmodel(XL, X_offset, Y, irts, mdpar, mdpar_offset, f_loss=met.roc_auc_score, offset = False):
+def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
     '''
     Create a training-validation set from X, Y and cross-validation indices
     
     Parameters
     ----------
-    XL : list, of DataFrame, a list of indepedent variables
-    X_offset : DataFrame, covariates to adjust as offset
+    mdL : list, of CV models
+    X : DataFrame, covariates to adjust as offset
     Y : DataFrame, dependent variable(s)
     irts : Series, cross-validation indices
-    mdpar, mdpar_offset : dict, model parameter dictionary for XL and offset, should include at least the following keys:
+    mdpar : dict, model parameter dictionary for offset, should include at least the following keys:
         f_model : function, model to train
         par_model : dict, arguments to train f_model
         f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
     f_loss : function, use to calculate loss, if not included, use the default option of function Loss
-    offset : bool, whether to use X_offset when building model for XL
     
     Returns
     -------
     op : DataFrame, mean loss of CV models
     '''
     op = []
-    model_offset = MDtrain(xt = X_offset, yt = Y, xv = X_offset, yv = Y, **mdpar_offset)
-    X_h1_offset = MDpred(model_offset, X_offset, logit = True).rename(columns={0: "covar"})
-    op.append(np.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_h1_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0), 0))
+    model_offset = MDtrain(xt = X, yt = Y, xv = X, yv = Y, **mdpar)
+    X_offset = MDpred(model_offset, X, logit = True).rename(columns={0: "covar"})
+    op.append(np.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0), 0))
     print(op[-1])
-    for X in XL:
-        timestart = time.time()
-        if offset:
-            md = CVmodel({"X": X.join(X_offset), "Y": Y, "irts": irts, "ic_offset": X_offset.columns, "logit": True, **mdpar})
-        else:
-            md = CVmodel({"X": X, "Y": Y, "irts": irts, "logit": True, **mdpar})
-        md_h1 = CVmodel({"X": md["yvpL"].join(X_h1_offset), "Y": Y, "irts": irts, **mdpar_offset, "ic_offset": "covar"})
+    for md in mdL:
+        md_h1 = CVmodel({"X": md["yvpL"].join(X_offset), "Y": Y, "irts": irts, **mdpar, "ic_offset": "covar"})
         op.append([md["lossL"].mean(), md_h1["lossL"].mean(), md_h1["wL"].loc[0].groupby(level = 1).mean()["coef"]])
-        print(op[-1], "Time: {:.2f} seconds".format(time.time()-timestart))
-    op = pd.DataFrame(op, columns=["X loss", "X+offset loss", "X coef"])
+        print(op[-1])
+    op = pd.DataFrame(op, columns=["loss", "loss with offset", "adjusted coef"])
     return(op)
 
 
