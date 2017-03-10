@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.7"
+__version__ = "0.15.8"
 __name__ = "MLtools"
 
 
@@ -370,19 +370,6 @@ def MDweight(model, xt, ic_offset=[], **kwargs):
         op = pd.Series()
     return(op)
 
-
-def MDweight_analysis(model, xt, **kwargs):
-    w = MDweight(model, xt, **kwargs)
-    if 'sklearn.ensemble' in type(model).__module__:
-        p0 = 1/len(w)
-        n_split = sum((i.tree_.feature != -2).sum() for i in np.array(model.estimators_).flatten())
-        op = w.to_frame("freq")
-        op["std"] = np.sqrt(w*(1-w)/n_split)
-        op["Z-score"] = (w - p0)/np.sqrt(p0*(1-p0)/n_split)
-        op["p-value"] = st.norm.cdf(-op["Z-score"])
-    return(op)
-
-
 def Loss(yv, yp, f_loss=met.roc_auc_score, **kwargs):
     '''
     Get loss between true validation Y and predicted Y
@@ -418,6 +405,43 @@ def roc(yv, yp, plot=False, **kwargs):
     op = pd.DataFrame(dict(zip(*[["FPR", "TPR", "Threshold"], met.roc_curve(yv, yp)])))
     if plot:
         op.set_index("FPR").plot(ylim=[0, 1], title="AUC: {:.4f}".format(met.auc(op["FPR"], op["TPR"])))
+    return(op)
+
+
+## Model Analysis
+
+
+def MDweight_analysis(model, xt, **kwargs):
+    w = MDweight(model, xt, **kwargs)
+    if 'sklearn.ensemble' in type(model).__module__:
+        p0 = 1/len(w)
+        n_split = sum((i.tree_.feature != -2).sum() for i in np.array(model.estimators_).flatten())
+        op = w.to_frame("freq")
+        op["std"] = np.sqrt(w*(1-w)/n_split)
+        op["Z-score"] = (w - p0)/np.sqrt(p0*(1-p0)/n_split)
+        op["p-value"] = st.norm.cdf(-op["Z-score"])
+    return(op)
+
+
+def tree_set(tree_):
+    def recurse_set(node, node_set_parent):
+        name = tree_.feature[node]
+        node_set = [{name}]
+        for i in node_set_parent:
+            node_set_i = i.copy()
+            node_set_i.add(name)
+            node_set.append(node_set_i)
+        node_lchild = recurse_set(tree_.children_left[node], node_set) if tree_.feature[tree_.children_left[node]] != -2 else []
+        node_rchild = recurse_set(tree_.children_right[node], node_set) if tree_.feature[tree_.children_right[node]] != -2 else []
+        node_set += node_lchild
+        node_set += node_rchild
+        return(node_set)
+    op = recurse_set(0, [])
+    return(op)
+
+
+def MDforest_set(model):
+    op = pd.value_counts([tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_)])
     return(op)
 
 
