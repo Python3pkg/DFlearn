@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.15.8"
+__version__ = "0.15.9"
 __name__ = "MLtools"
 
 
@@ -423,25 +423,25 @@ def MDweight_analysis(model, xt, **kwargs):
     return(op)
 
 
-def tree_set(tree_):
-    def recurse_set(node, node_set_parent):
+def tree_set(tree_, max_depth = 5):
+    def recurse_set(node, node_set_parent, depth):
         name = tree_.feature[node]
         node_set = [{name}]
         for i in node_set_parent:
             node_set_i = i.copy()
             node_set_i.add(name)
             node_set.append(node_set_i)
-        node_lchild = recurse_set(tree_.children_left[node], node_set) if tree_.feature[tree_.children_left[node]] != -2 else []
-        node_rchild = recurse_set(tree_.children_right[node], node_set) if tree_.feature[tree_.children_right[node]] != -2 else []
-        node_set += node_lchild
-        node_set += node_rchild
+        if depth < max_depth:
+            node_lchild = recurse_set(tree_.children_left[node], node_set, depth+1) if tree_.feature[tree_.children_left[node]] != -2 else []
+            node_rchild = recurse_set(tree_.children_right[node], node_set, depth+1) if tree_.feature[tree_.children_right[node]] != -2 else []
+            node_set += node_lchild
+            node_set += node_rchild
         return(node_set)
-    op = recurse_set(0, [])
+    op = recurse_set(0, [], 1)
     return(op)
 
-
-def MDforest_set(model):
-    op = pd.value_counts([tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_)])
+def MDforest_set(model, max_depth = 5):
+    op = pd.value_counts([tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)])
     return(op)
 
 
