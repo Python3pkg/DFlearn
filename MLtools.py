@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.16.0"
+__version__ = "0.16.1"
 __name__ = "MLtools"
 
 
@@ -440,12 +440,18 @@ def tree_set(tree_, max_depth = 5):
     return(recurse_set(0, [], 1))
 
 
-def MDforest_set(model, xt = None, max_depth = 5):
-    if xt is None:
-        return(pd.value_counts(tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)))
-    else:
-        ic_x_name = xt.columns.tolist()
-        return(pd.value_counts(tuple(ic_x_name[k] for k in j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth)))
+def MDforest_set(model, xt = None, max_depth = 5, alpha = 0.05):
+    asso_S = pd.value_counts(tuple(j) for i in np.array(model.estimators_).flatten() for j in tree_set(i.tree_, max_depth))
+    op = []
+    ic_name = range(model.n_features_) if xt is None else xt.columns.tolist()
+    for i, i_val in asso_S.groupby(asso_S.rename(len).index):
+        i_val = i_val.rename(lambda x: ic_name[x[0]]) if i == 1 else pd.Series(i_val.values, [tuple(ic_name[j] for j in x) for x in i_val.index])
+        p0 = 1/misc.comb(model.n_features_, i)
+        freq0 = i_val.sum()*p0
+        if alpha >= 0:
+            i_val = i_val[i_val > np.ceil(freq0-st.norm.ppf(alpha*p0)*np.sqrt(freq0*(1-p0)))]
+        op.append(i_val)
+    return(op)
 
 
 ## Cross-Validation
