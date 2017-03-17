@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.16.1"
+__version__ = "0.16.2"
 __name__ = "MLtools"
 
 
@@ -118,7 +118,7 @@ def CLnormal(df):
     '''
     Normalize the distribution of numeric DataFrame to standard normal distribution by rank
     '''
-    op = pd.DataFrame(st.norm.ppf((df.rank(pct = True) - 0.5/df.shape[0]).fillna(0.5)), index=df.index, columns=df.columns)
+    op = pd.DataFrame(st.norm.ppf((df.rank(pct = True) - 0.5/df.shape[0]).fillna(0.5)), index=df.index, columns=df.columns, dtype = "float32")
     return(op)
 
 
@@ -126,7 +126,7 @@ def CLscale(df):
     '''
     Standardize the distribution of numeric DataFrame to mean 0 and standard deviation 1
     '''
-    op = ((df - df.mean())/df.std()).fillna(0)
+    op = ((df - df.mean())/df.std()).fillna(0).astype("float32")
     return(op)
 
 
