@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.16.2"
+__version__ = "0.16.3"
 __name__ = "MLtools"
 
 
@@ -611,6 +611,8 @@ def CVweight(wL, family="normal", **kwargs):
     op = op.assign(LowerCI=op["Mean"]-1.96*sd, UpperCI=op["Mean"]+1.96*sd)
     return(op)
 
+def cross_join(left, right, **kwargs):
+    return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
 
 def MCVtest(df, ictypeL, mdpar, **kwargs):
     '''
