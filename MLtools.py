@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.16.3"
+__version__ = "0.16.4"
 __name__ = "MLtools"
 
 
@@ -694,7 +694,34 @@ def MMCVmodel(mdsetL, mdparL):
     mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
     return(mdLL)
 
-def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.laplace.cdf, bounds = [(0,1), (0.1,10)], tol = 1e-7, seed = 1, plot = True, **kwargs):
+def fastlmm(X, Y, G, **kwargs):
+    Xc = np.hstack([np.ones([X.shape[0], 1]), X])
+    S, U = np.linalg.eigh(G)
+    S = S[:, np.newaxis]
+    UX = U.T @ Xc
+    UY = U.T @ Y
+    XX = Xc.T @ Xc
+
+    def loss(h2):
+        D = 1 + h2*(S-1)
+        XDX = UX.T @ (UX/D)
+        XDY = UX.T @ (UY/D)
+        w = np.linalg.solve(XDX, XDY)
+        e2 = (UY - UX@w)**2 / D
+        sigma2 = e2.mean()
+        op = (np.log(D*sigma2).sum() + np.linalg.slogdet(XDX/sigma2)[1] - np.linalg.slogdet(XX)[1])/Y.shape[0]
+        return(op)
+    
+    model = opt.differential_evolution(loss, bounds=[(0,1)], tol=1e-7, **kwargs)
+    h2 = model.x[0]
+    D = 1 + h2*(S-1)
+    XDX = UX.T @ (UX/D)
+    XDY = UX.T @ (UY/D)
+    w = np.linalg.solve(XDX, XDY)
+    sigma2 = ((UY - UX@w)**2 / D).mean()
+    return({"w": w, "sigma2": sigma2, "h2": h2})
+
+def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.laplace.cdf, bounds = [(0,1), (0.1,10)], tol = 1e-7, plot = True, **kwargs):
     '''
     Adjust t-statistics of a large number of independent tests with Bayesian inference.
     Prior assumption: 
@@ -723,7 +750,7 @@ def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.lapla
     G = np.exp(-np.subtract.outer(xtable, xtable)**2/2)
     def loss(a):
         return(-2*ntable@np.log(a[0]*(G@np.diff(distcdf(xbins/a[1])) - g0) + g0))
-    model = opt.differential_evolution(loss, bounds=bounds, seed = seed, tol = tol, **kwargs)
+    model = opt.differential_evolution(loss, bounds=bounds, tol = tol, **kwargs)
     print(model)
     alpha, sigma = model.x
     nhat = (alpha*G@np.diff(distcdf(xbins/sigma)) + (1-alpha)*g0)
