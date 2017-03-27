@@ -534,6 +534,13 @@ def CVset(X, Y, irts, ig=0, ictL=None, **kwargs):
     return(op)
 
 
+def CVset_df(X, Y, irts, ig=None):
+    if ig is None:
+        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=i) for i in np.unique(irts)]))
+    else:
+        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=ig)]))
+
+    
 def CVply(f, irts, parcv={}, f_con=list, argcon = {}, **kwargs):
     '''
     Apply function on cross-validation data sets
