@@ -694,6 +694,11 @@ def MMCVmodel(mdsetL, mdparL):
     mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
     return(mdLL)
 
+def lmm_kernel(X):
+    X = (X - np.mean(X, axis=0))/(1e-7+np.std(X, axis=0))
+    G = (X @ X.T)/X.shape[1]
+    return(G)
+
 def fastlmm(X, Y, G, **kwargs):
     Xc = np.hstack([np.ones([X.shape[0], 1]), X])
     S, U = np.linalg.eigh(G)
@@ -701,23 +706,19 @@ def fastlmm(X, Y, G, **kwargs):
     UX = U.T @ Xc
     UY = U.T @ Y
     XX = Xc.T @ Xc
-
+    
     def loss(h2):
         D = 1 + h2*(S-1)
         XDX = UX.T @ (UX/D)
         XDY = UX.T @ (UY/D)
         w = np.linalg.solve(XDX, XDY)
-        e2 = (UY - UX@w)**2 / D
-        sigma2 = e2.mean()
-        op = (np.log(D*sigma2).sum() + np.linalg.slogdet(XDX/sigma2)[1] - np.linalg.slogdet(XX)[1])/Y.shape[0]
-        return(op)
+        sigma2 = ((UY - UX@w)**2/D).mean()
+        return((np.log(D*sigma2).sum() + np.linalg.slogdet(XDX/sigma2)[1] - np.linalg.slogdet(XX)[1])/Y.shape[0])
     
     model = opt.differential_evolution(loss, bounds=[(0,1)], tol=1e-7, **kwargs)
     h2 = model.x[0]
     D = 1 + h2*(S-1)
-    XDX = UX.T @ (UX/D)
-    XDY = UX.T @ (UY/D)
-    w = np.linalg.solve(XDX, XDY)
+    w = np.linalg.solve(UX.T@(UX/D), UX.T@(UY/D))
     sigma2 = ((UY - UX@w)**2 / D).mean()
     return({"w": w, "sigma2": sigma2, "h2": h2})
 
@@ -748,8 +749,10 @@ def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.lapla
     xtable = (xbins[1:] + xbins[:-1])/2
     g0 = np.exp(-xtable**2/2)
     G = np.exp(-np.subtract.outer(xtable, xtable)**2/2)
+    
     def loss(a):
         return(-2*ntable@np.log(a[0]*(G@np.diff(distcdf(xbins/a[1])) - g0) + g0))
+    
     model = opt.differential_evolution(loss, bounds=bounds, tol = tol, **kwargs)
     print(model)
     alpha, sigma = model.x
