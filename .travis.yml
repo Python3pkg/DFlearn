@@ -3,4 +3,6 @@ python:
   - '3.5'
   - '3.6'
 install: pip install -r requirements.txt
-script: python setup.py test
+script: 
+  - python setup.py install
+  - python tests/test.py
