@@ -8,7 +8,7 @@ setup(
         'scipy>=0.18.0',
         'pandas>=0.19.0',
         'statsmodels>=0.6.0',
-        'sklearn>=0.18.0',
+        'scikit-learn>=0.18.0',
         'nltk>=3.0.0'
     ],
     description = 'A DataFrame-based Machine Learning Toolset in Python',
