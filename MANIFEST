@@ -1,5 +1,7 @@
 setup.cfg
 setup.py
+LICENSE.txt
+README.rst
 dflearn/MLtools.py
 dflearn/NLtools.py
 dflearn/SNPtools.py
