@@ -5,4 +5,7 @@ python:
 install: pip install -r requirements.txt
 script: 
   - python setup.py install
-  - python tests/test.py
+  - python dflearn/__init__.py
+  - python dflearn/MLtools.py
+  - python dflearn/NLtools.py
+  - python dflearn/SNPtools.py
