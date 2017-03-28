@@ -13,10 +13,10 @@ setup(
     ],
     description = 'A DataFrame-based Machine Learning Toolset in Python',
     author = 'Fangda Fan',
-    author_email = 'wsffd@qq.com',
+    author_email = 'recreating@outlook.com',
     url = 'https://github.com/founderfan/DFlearn', # use the URL to the github repo
     download_url = 'https://github.com/founderfan/DFlearn/archive/0.1.tar.gz', # I'll explain this in a second
-    keywords = ['machine-learning', 'pandas', 'scikit-learn', 'cross-validation'], # arbitrary keywords
+    keywords = 'machine-learning pandas scikit-learn cross-validation', # arbitrary keywords
     classifiers = ['Programming Language :: Python :: 3'],
     license='MIT',
 )
