@@ -1,6 +1,6 @@
-A data analysis and machine-learning toolset using pandas DataFrame and scikit-learn models.
+|Latest Release| |License|
 
-|Latest Release| |Package Status| |License| |PyPI|
+A data analysis and machine-learning toolset using pandas DataFrame and scikit-learn models.
 
 Install
 =======
@@ -17,7 +17,7 @@ Dependencies
 -  `pandas <http://pandas.pydata.org/>`__: 0.19.0 or higher
 -  `statsmodels <http://www.statsmodels.org/>`__: 0.6.0 or higher
 -  `sklearn <http://scikit-learn.org/>`__: 0.18.0 or higher
--  `nltk <http://www.nltk.org/>`__: 3.0 or higher
+-  `nltk <http://www.nltk.org/>`__: 3.0.0 or higher
 
 Contents
 ========
@@ -46,6 +46,4 @@ License
 MIT license
 
 .. |Latest Release| image:: https://img.shields.io/pypi/v/dflearn.svg
-.. |Package Status| image:: https://img.shields.io/pypi/status/dflearn.svg
 .. |License| image:: https://img.shields.io/pypi/l/dflearn.svg
-.. |PyPI| image:: https://img.shields.io/pypi/dm/dflearn.svg
