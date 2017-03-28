@@ -1,4 +1,4 @@
-|Latest Release| |License|
+|Latest Release| |License| |Build Status|
 
 A data analysis and machine-learning toolset using pandas DataFrame and scikit-learn models.
 
@@ -16,7 +16,7 @@ Dependencies
 -  `scipy <https://www.scipy.org/>`__: 0.18.0 or higher
 -  `pandas <http://pandas.pydata.org/>`__: 0.19.0 or higher
 -  `statsmodels <http://www.statsmodels.org/>`__: 0.6.0 or higher
--  `sklearn <http://scikit-learn.org/>`__: 0.18.0 or higher
+-  `scikit-learn <http://scikit-learn.org/>`__: 0.18.0 or higher
 -  `nltk <http://www.nltk.org/>`__: 3.0.0 or higher
 
 Contents
@@ -47,3 +47,4 @@ MIT license
 
 .. |Latest Release| image:: https://img.shields.io/pypi/v/dflearn.svg
 .. |License| image:: https://img.shields.io/pypi/l/dflearn.svg
+.. |Build Status| image:: https://travis-ci.org/founderfan/DFlearn.svg?branch=master

@@ -11,6 +11,7 @@ setup(
         'scikit-learn>=0.18.0',
         'nltk>=3.0.0'
     ],
+    test_suite='tests',
     description = 'A DataFrame-based Machine Learning Toolset in Python',
     author = 'Fangda Fan',
     author_email = 'recreating@outlook.com',
@@ -18,5 +19,5 @@ setup(
     download_url = 'https://github.com/founderfan/DFlearn/archive/0.1.tar.gz', # I'll explain this in a second
     keywords = 'machine-learning pandas scikit-learn cross-validation', # arbitrary keywords
     classifiers = ['Programming Language :: Python :: 3'],
-    license='MIT',
+    license='MIT'
 )
