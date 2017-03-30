@@ -24,11 +24,39 @@ Contents
 
 -  MLtools: machine learning tools, main toolset
 
-   -  Data cleaning
-   -  Data summary
-   -  Training/validation set split
-   -  Machine learning model training, weight analysis, validation and prediction
-   -  Cross-validation
+   -  Whole dataset
+
+      -  Data summary
+
+         -  Variable type, NA/non-NA values, numeric summary statistics, most frequent values
+
+      -  Data cleaning
+
+         -  Categorical variables transformation into dummy variables
+         -  Numeric variables standarzation/normalization with imputation
+         -  Sparse variables deletion
+         -  Collinear variables deletion
+         -  Dependent/independent (Y/X) variable separation
+
+   -  Machine learning
+
+      -  Training/validation set split
+      -  Model training
+
+         -  Scikit-learn like regression/classification
+
+      -  Weight analysis
+
+         -  Generalized linear model
+         -  Tree models variable importance (and random forest interaction)
+         -  Heritability of linear mixed model
+
+      -  Validation and error analysis
+
+   -  Cross Validation
+
+      -  Cross-validation set creation
+      -  Multiple model/dataset CV
 
 -  NLtools: natural language tools, waiting for development
 

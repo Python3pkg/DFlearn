@@ -12,8 +12,8 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.16.4"
-__name__ = "MLtools"
+__version__ = "0.1.1"
+__name__ = "DFlearn"
 
 
 def validpar(f, x):
@@ -54,6 +54,7 @@ def strnum(x, f_reduce=max):
     else:
         return(x)
 
+    
 def plyargs(f, argL, argname, f_con=list, argcon={}, **kwargs):
     '''
     Apply function on a list of arguments
@@ -131,12 +132,18 @@ def CLscale(df):
 
 
 def CLsparse_cat(s, sp=0.01):
+    '''
+    Clean a object Series with sparse values converted to "others"
+    '''
     sfreq = pd.value_counts(s) > sp*s.shape[0]
     op = s.where(s.isin(sfreq.index[sfreq]), "others")
     return(op)
 
 
 def CLsparse(s):
+    '''
+    Check the percentage of non-most-frequent and non-null values in a Series
+    '''
     op = 1 - s.isnull().mean()
     if op > 0:
         op -= pd.value_counts(s).iloc[0]/s.shape[0]
@@ -197,7 +204,7 @@ def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offse
     return(op)
 
 
-def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], rank = True, pct = 1, **kwargs):
+def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], rank=True, pct=1, **kwargs):
     '''
     Train a model of statsmodel form
     
@@ -478,29 +485,30 @@ def Kfolds(x, k=10, seed=1):
     return(op)
 
 
-def CVdata(df, ic_x=[], ic_y=[], ir=None, k=10, f_norm_y=lambda x: x, **kwargs):
+def CVdata(df, ic_x=[], ic_y=[], ir=None, k=10, f_norm_y=lambda x: x, seed=0, **kwargs):
     '''
     Create a dict of cross-validation dataset for models
     
     Parameters
     ----------
     df : DataFrame, data to clean
-    ictype : Series, types of columns for converting data, it should include at least one variable as "Y" 
+    ic_x : list, column names used as X
+    ic_y : list, column names used as Y
     ir : list, index of sub-sample
-    f_cv : function, use to create cross-validation indices
+    k : int, number of cross-validation folds
     
     Returns
     -------
     op : dict, including following three keys:
         X : DataFrame, independent variables
         Y : DataFrame, depedent variable(s)
-        irts : Series, cross-validation group index
+        irts : 1-d array, cross-validation group index
     '''
     if(ir is None):
         ir = df.index
     op = {"X": CLdata(df.loc[ir].reindex(columns=ic_x, fill_value=0), **kwargs), 
           "Y": f_norm_y(df.loc[ir, ic_y]),
-          "irts": Kfolds(ir, k)}
+          "irts": Kfolds(x=ir, k=k, seed=seed)}
     return(op)
 
 
@@ -512,7 +520,7 @@ def CVset(X, Y, irts, ig=0, ictL=None, **kwargs):
     ----------
     X : DataFrame, indepedent variables
     Y : DataFrame, dependent variable(s)
-    irts : Series, cross-validation indices
+    irts : list-like, cross-validation indices
     ig : int, fold to use as validation index, and others as training index
     ictL : DataFrame, X columns bool indcators for each set in CV
     
@@ -534,11 +542,29 @@ def CVset(X, Y, irts, ig=0, ictL=None, **kwargs):
     return(op)
 
 
-def CVset_df(X, Y, irts, ig=None):
+def CVset_df(X, Y, irts, ig=None, **kwargs):
+    '''
+    Create a DataFrame-form training-validation set from X, Y and cross-validation indices
+    
+    Parameters
+    ----------
+    X : DataFrame, indepedent variables
+    Y : DataFrame, dependent variable(s)
+    irts : list-like, cross-validation indices
+    ig : int, fold to use as validation index, and others as training index. if None, use all folds
+    
+    Returns
+    -------
+    op : DataFrame, columns including following four keys:
+        xt : DataFrame, training X set
+        xv : DataFrame, validation X set
+        yt : DataFrame, training Y set
+        yv : DataFrame, validation Y set
+    '''
     if ig is None:
-        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=i) for i in np.unique(irts)]))
+        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=i, **kwargs) for i in np.unique(irts)]))
     else:
-        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=ig)]))
+        return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=ig, **kwargs)]))
 
     
 def CVply(f, irts, parcv={}, f_con=list, argcon = {}, **kwargs):
@@ -618,8 +644,10 @@ def CVweight(wL, family="normal", **kwargs):
     op = op.assign(LowerCI=op["Mean"]-1.96*sd, UpperCI=op["Mean"]+1.96*sd)
     return(op)
 
+
 def cross_join(left, right, **kwargs):
     return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
+
 
 def MCVtest(df, ictypeL, mdpar, **kwargs):
     '''
@@ -701,12 +729,46 @@ def MMCVmodel(mdsetL, mdparL):
     mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
     return(mdLL)
 
-def lmm_kernel(X):
+
+def lmm_kernel(X, w=None):
+    '''
+    Create standardized kernel for linear mixed model
+
+    Parameters
+    ----------
+    X : 2d array of shape (n, p), random effects matrix
+    w : 1d array of shape (p,), scale of columns. If None, all scaled to 1
+    
+    Returns
+    -------
+    G : 2d array of shape (n, n), kernel of random effects in linear mixed model
+    '''
     X = (X - np.mean(X, axis=0))/(1e-7+np.std(X, axis=0))
-    G = (X @ X.T)/X.shape[1]
+    if w is None:
+        G = (X @ X.T)/X.shape[1] 
+    else:
+        X *= w
+        G = (X @ X.T)/(w ** 2).sum()
     return(G)
 
+
 def fastlmm(X, Y, G, **kwargs):
+    '''
+    Factored spectrally transformed linear mixed models
+
+    Parameters
+    ----------
+    X : 2d array of shape (n, p), covariate matrix
+    Y : 2d array of shape (n, 1), response variable
+    G : 2d array of shape (n, n), kernel of random effects
+    
+    Returns
+    -------
+    a dict, contains:
+        w : coefficients for X
+        sigma2 : total variance of residuals
+        h2 : heritability of random effects
+    '''
     Xc = np.hstack([np.ones([X.shape[0], 1]), X])
     S, U = np.linalg.eigh(G)
     S = S[:, np.newaxis]
@@ -729,7 +791,8 @@ def fastlmm(X, Y, G, **kwargs):
     sigma2 = ((UY - UX@w)**2 / D).mean()
     return({"w": w, "sigma2": sigma2, "h2": h2})
 
-def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.laplace.cdf, bounds = [(0,1), (0.1,10)], tol = 1e-7, plot = True, **kwargs):
+
+def DoubleWeightedTstat(x, xbins=np.linspace(-10, 10, 200), distcdf=st.laplace.cdf, bounds =[(0,1), (0.1,10)], tol=1e-7, plot=True, **kwargs):
     '''
     Adjust t-statistics of a large number of independent tests with Bayesian inference.
     Prior assumption: 
@@ -776,9 +839,3 @@ def DoubleWeightedTstat(x, xbins = np.linspace(-10, 10, 200), distcdf = st.lapla
         pd.DataFrame(np.array([ntable, muhat, nhat, nadjtable]).T, index = xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1])
         pd.DataFrame(np.array([1-pdftable[np.argmin(np.abs(xtable))], Etable.round(8)/xtable]).T, index = xtable, columns = ["P(Non-zero)", "Shrinkage Ratio"]).rename_axis("T-stat").plot(ylim = [0, 1])
     return(xadj)
-
-
-def DWadjust_plink(daw, fw = lambda x: x["BETA"], **kwargs):
-    op = daw.assign(BETA = fw, Tstat_adj = pd.Series(DoubleWeightedTstat(daw["STAT"].dropna(), **kwargs), index = daw["STAT"].dropna().index))
-    op["Beta_adj"] = op["BETA"]*op["Tstat_adj"]/op["STAT"]
-    return(op)
