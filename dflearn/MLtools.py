@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __name__ = "DFlearn"
 
 
@@ -185,7 +185,6 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
 
 ## Machine Learning Models
 
-
 def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offset = False, **kwargs):
     par = {}
     par.update(par_model)
@@ -270,7 +269,31 @@ def MLstatsmodel(xt, yt, xv=None, yv=None, seed=0, f_model=sm.GLM, par_model={"f
     return(model)
 
 
-def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par_model={}, par_fit={'verbose': False}, **kwargs):
+## Machine Learning Procedures
+
+def MDinit(f_model=lm.LogisticRegression, par_model={}, seed=0, **kwargs):
+    '''
+    Initiate a model of scikit-learn form
+    
+    Parameters
+    ----------
+    seed : int or list, random seed. If a list, create a list of models
+    f_model : function, model to train
+    par_model : dict, arguments to initiate a f_model
+    
+    Returns
+    -------
+    out: initiated model or model list
+    '''
+    if hasattr(seed, "__iter__"):
+        return([MLinit(f_model, par_model, i) for i in seed])
+    else:
+        par = {'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced'}
+        par.update(par_model)
+        return(f_model(**validpar(f_model, {**par_model, "random_state": seed, "seed": seed})))
+    
+    
+def MDfit(model, xt, yt, xv=None, yv=None, par_fit={'verbose': False}, **kwargs):
     '''
     Train a model of scikit-learn form
     
@@ -281,44 +304,17 @@ def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par
     yt : DataFrame, training Y set
     yv : DataFrame, validation Y set
     seed : int, random seed
-    f_model : function, model to train
-    par_model : dict, arguments to train f_model
+    model : model to train
+    par_fit : dict, arguments to train f_model
     
     Returns
     -------
     model : trained model
     '''
-    par = {"random_state": seed, "n_estimators": max(100, xt.shape[1]), 'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced',
-           "seed": seed, "colsample_bylevel": 1/(1+np.log(xt.shape[1]))}
-    par.update(par_model)
-    model = f_model(**validpar(f_model, par))
-    model.fit(xt, yt.iloc[:,0], **validpar(model.fit, {"eval_set": [(xv, yv.iloc[:,0])], 'verbose': False, **par_fit}))
+    par = {"eval_set": [(xv, yv.iloc[:,0])], 'verbose': False}
+    par.update(par_fit)
+    model.fit(xt, yt.iloc[:,0], **validpar(model.fit, par))
     return(model)
-
-
-## Machine Learning Model Functions
-
-
-def MDtrain(f_model, **kwargs):
-    '''
-    Call a proper model to train according to f_model
-    
-    Parameters
-    ----------
-    f_model : function, model to train
-    **kwargs : arguments of function f_model
-    
-    Returns
-    -------
-    model : trained model
-    '''
-    if f_model.__name__ == "GLM":
-        model = MLstatsmodel(f_model=f_model, **kwargs)
-    elif f_model.__name__ == 'MLsinglereg':
-        model = MLsinglereg(**kwargs)
-    else:
-        model = MLmodel(f_model=f_model, **kwargs)
-    return(model)  
 
 
 def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwargs):
@@ -376,6 +372,7 @@ def MDweight(model, xt, ic_offset=[], **kwargs):
     else:
         op = pd.Series()
     return(op)
+
 
 def Loss(yv, yp, f_loss=met.roc_auc_score, **kwargs):
     '''
@@ -462,6 +459,25 @@ def MDforest_set(model, xt = None, max_depth = 5, alpha = 0.05):
 
 
 ## Cross-Validation
+
+
+def DMinit(mdset_df, mdpar_df):
+    '''
+    Initiate a DataFrame-based CV model set
+    
+    Parameters
+    ----------
+    mdset_df : DataFrame, for CV data
+    mdpar_df : DataFrame, for model parameters
+    
+    Returns
+    -------
+    out: DataFrame, cross-joined CV data-model list
+    '''
+    md_df = cross_join(mdset_df, mdpar_df)
+    md_df['seed'] = md_df['irts'].apply(np.unique)
+    md_df["modelL"] = md_df.apply(lambda x: MDinit(**x.to_dict()), axis=1)
+    return(md_df.drop(["seed", "f_model", "par_model"], axis=1))
 
 
 def Kfolds(x, k=10, seed=1):
@@ -567,7 +583,7 @@ def CVset_df(X, Y, irts, ig=None, **kwargs):
         return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=ig, **kwargs)]))
 
     
-def CVply(f, irts, parcv={}, f_con=list, argcon = {}, **kwargs):
+def CVply(f, irts, parcv={}, f_con=list, argcon={}, **kwargs):
     '''
     Apply function on cross-validation data sets
     
@@ -585,38 +601,8 @@ def CVply(f, irts, parcv={}, f_con=list, argcon = {}, **kwargs):
     op : list, iterated outputs of f
     '''
     parcv = dict([[x, kwargs.pop(parcv[x])] for x in parcv.keys()])
-    op = f_con(map(lambda i: f(seed=i, **CVset(ig=i, irts = irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
+    op = f_con(map(lambda i: f(seed=i, **CVset(ig=i, irts=irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
     return(op)
-
-
-def CVmodel(md):
-    '''
-    Do cross validation given a model dictionary
-    
-    Parameters
-    ----------
-    md: dict, model dictionary, should include at least the following keys:
-        X : DataFrame, indepedent variables
-        Y : DataFrame, dependent variable(s)
-        irts : Series, cross-validation group index
-        f_model : function, model to train
-        par_model : dict, arguments to train f_model
-        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    
-    Returns
-    -------
-    op : dict, updated model dictionary, with the following keys added:
-        modelL : list, trained cross-validation models
-        wL : DataFrame, variable weights of the cross-validation models
-        yvpL : Series, predicted Ys on validation sets by different CV models
-        lossL : Series, loss on validation sets
-    '''
-    md["modelL"] = CVply(f=MDtrain, **md)
-    md["wL"] = CVply(f=MDweight, parcv={"model": "modelL"}, f_con=pd.concat, argcon = {"axis": 1, "keys": np.unique(md["irts"])}, **md)
-    md["yvpL"] = CVply(f=MDpred, parcv={"model": "modelL"}, **md)
-    md["lossL"] = CVply(f=Loss, parcv={"yp": "yvpL"}, f_con=pd.Series, **md)
-    md["yvpL"] = pd.concat(md["yvpL"]).loc[md["Y"].index]
-    return(md)
 
 
 def CVweight(wL, family="normal", **kwargs):
@@ -839,3 +825,79 @@ def DoubleWeightedTstat(x, xbins=np.linspace(-10, 10, 200), distcdf=st.laplace.c
         pd.DataFrame(np.array([ntable, muhat, nhat, nadjtable]).T, index = xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1])
         pd.DataFrame(np.array([1-pdftable[np.argmin(np.abs(xtable))], Etable.round(8)/xtable]).T, index = xtable, columns = ["P(Non-zero)", "Shrinkage Ratio"]).rename_axis("T-stat").plot(ylim = [0, 1])
     return(xadj)
+
+
+## deprecated
+def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par_model={}, par_fit={'verbose': False}, **kwargs):
+    '''
+    Train a model of scikit-learn form
+    
+    Parameters
+    ----------
+    xt : DataFrame, training X set
+    xv : DataFrame, validation X set
+    yt : DataFrame, training Y set
+    yv : DataFrame, validation Y set
+    seed : int, random seed
+    f_model : function, model to train
+    par_model : dict, arguments to train f_model
+    
+    Returns
+    -------
+    model : trained model
+    '''
+    par = {"random_state": seed, "n_estimators": max(100, xt.shape[1]), 'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced',
+           "seed": seed, "colsample_bylevel": 1/(1+np.log(xt.shape[1]))}
+    par.update(par_model)
+    model = f_model(**validpar(f_model, par))
+    model.fit(xt, yt.iloc[:,0], **validpar(model.fit, {"eval_set": [(xv, yv.iloc[:,0])], 'verbose': False, **par_fit}))
+    return(model)
+
+def MDtrain(f_model, **kwargs):
+    '''
+    Call a proper model to train according to f_model
+    
+    Parameters
+    ----------
+    f_model : function, model to train
+    **kwargs : arguments of function f_model
+    
+    Returns
+    -------
+    model : trained model
+    '''
+    if f_model.__name__ == "GLM":
+        model = MLstatsmodel(f_model=f_model, **kwargs)
+    elif f_model.__name__ == 'MLsinglereg':
+        model = MLsinglereg(**kwargs)
+    else:
+        model = MLmodel(f_model=f_model, **kwargs)
+    return(model)  
+def CVmodel(md):
+    '''
+    Do cross validation given a model dictionary
+    
+    Parameters
+    ----------
+    md: dict, model dictionary, should include at least the following keys:
+        X : DataFrame, indepedent variables
+        Y : DataFrame, dependent variable(s)
+        irts : Series, cross-validation group index
+        f_model : function, model to train
+        par_model : dict, arguments to train f_model
+        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
+    
+    Returns
+    -------
+    op : dict, updated model dictionary, with the following keys added:
+        modelL : list, trained cross-validation models
+        wL : DataFrame, variable weights of the cross-validation models
+        yvpL : Series, predicted Ys on validation sets by different CV models
+        lossL : Series, loss on validation sets
+    '''
+    md["modelL"] = CVply(f=MDtrain, **md)
+    md["wL"] = CVply(f=MDweight, parcv={"model": "modelL"}, f_con=pd.concat, argcon = {"axis": 1, "keys": np.unique(md["irts"])}, **md)
+    md["yvpL"] = CVply(f=MDpred, parcv={"model": "modelL"}, **md)
+    md["lossL"] = CVply(f=Loss, parcv={"yp": "yvpL"}, f_con=pd.Series, **md)
+    md["yvpL"] = pd.concat(md["yvpL"]).loc[md["Y"].index]
+    return(md)
