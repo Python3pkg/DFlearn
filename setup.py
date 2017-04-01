@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
     name = 'dflearn',
     packages = ['dflearn'], # this must be the same as the name above
-    version = '0.1',
+    version = '0.1.2',
     install_requires=[
         'numpy>=1.11.0',
         'scipy>=0.18.0',
@@ -16,7 +16,7 @@ setup(
     author = 'Fangda Fan',
     author_email = 'recreating@outlook.com',
     url = 'https://github.com/founderfan/DFlearn', # use the URL to the github repo
-    download_url = 'https://github.com/founderfan/DFlearn/archive/0.1.tar.gz', # I'll explain this in a second
+    download_url = 'https://github.com/founderfan/DFlearn/archive/0.1.2.tar.gz', # I'll explain this in a second
     keywords = 'machine-learning pandas scikit-learn cross-validation', # arbitrary keywords
     classifiers = ['Programming Language :: Python :: 3'],
     license='MIT'
