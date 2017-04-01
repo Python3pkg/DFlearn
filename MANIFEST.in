@@ -6,4 +6,3 @@ dflearn/MLtools.py
 dflearn/NLtools.py
 dflearn/SNPtools.py
 dflearn/__init__.py
-tests/test.py
