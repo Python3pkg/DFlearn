@@ -12,7 +12,7 @@ import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __name__ = "DFlearn"
 
 
@@ -286,7 +286,7 @@ def MDinit(f_model=lm.LogisticRegression, par_model={}, seed=0, **kwargs):
     out: initiated model or model list
     '''
     if hasattr(seed, "__iter__"):
-        return([MLinit(f_model, par_model, i) for i in seed])
+        return([MDinit(f_model, par_model, i) for i in seed])
     else:
         par = {'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced'}
         par.update(par_model)
