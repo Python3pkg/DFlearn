@@ -11,8 +11,9 @@ import patsy as ps
 import statsmodels.api as sm
 import sklearn.metrics as met
 import sklearn.linear_model as lm
+from sklearn.base import BaseEstimator, TransformerMixin
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __name__ = "DFlearn"
 
 
@@ -778,7 +779,7 @@ def fastlmm(X, Y, G, **kwargs):
     return({"w": w, "sigma2": sigma2, "h2": h2})
 
 
-def DoubleWeightedTstat(x, xbins=np.linspace(-10, 10, 200), distcdf=st.laplace.cdf, bounds =[(0,1), (0.1,10)], tol=1e-7, plot=True, **kwargs):
+class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
     '''
     Adjust t-statistics of a large number of independent tests with Bayesian inference.
     Prior assumption: 
@@ -789,11 +790,9 @@ def DoubleWeightedTstat(x, xbins=np.linspace(-10, 10, 200), distcdf=st.laplace.c
     Parameters
     ----------
     x : list-like, t-statistics to adjust
-    xbins : array, bin edges for cutting x
     distcdf : function, cumulative distribution function of prior of non-zero t-statistics
     bounds : list, each element is tuple (min, max) bounds for parameters
     tol : float, convergence threshold
-    seed : int, random seed
     plot : bool, whether plot estimation result
     **kwargs : arguments of function opt.differential_evolution
 
@@ -801,30 +800,63 @@ def DoubleWeightedTstat(x, xbins=np.linspace(-10, 10, 200), distcdf=st.laplace.c
     -------
     xadj : array, adjusted x
     '''
-    ntable = np.bincount(pd.Series(pd.cut(x, xbins)).cat.codes.values, minlength = len(xbins)-1)/len(x)
-    xtable = (xbins[1:] + xbins[:-1])/2
-    g0 = np.exp(-xtable**2/2)
-    G = np.exp(-np.subtract.outer(xtable, xtable)**2/2)
+    def __init__(self, width=8, num=200):
+        self.xbins = np.linspace(-2*width, 2*width, 2*num)
+        self.xtable = (self.xbins[1:] + self.xbins[:-1])/2
+        self.G = np.exp(-np.subtract.outer(self.xtable, self.xtable)**2/2)/np.sqrt(2*np.pi)
+        self.g0 = np.exp(-self.xtable**2/2)/np.sqrt(2*np.pi)
+        self.delta = 2*width/(num-1)
+        self.xlim = [-width, width]
+
+    def diff_d(self, sigma):
+        return(np.diff(self.distcdf(self.xbins/sigma)))
+        
+    def pdf_x(self, alpha, sigma):
+        return((1-alpha)*self.g0 + alpha*self.G@self.diff_d(sigma))
     
-    def loss(a):
-        return(-2*ntable@np.log(a[0]*(G@np.diff(distcdf(xbins/a[1])) - g0) + g0))
+    def diff_mu(self, alpha, sigma):
+        return((1-alpha)*np.diff(st.uniform.cdf(self.xbins*100)) + alpha*self.diff_d(sigma))
     
-    model = opt.differential_evolution(loss, bounds=bounds, tol = tol, **kwargs)
-    print(model)
-    alpha, sigma = model.x
-    nhat = (alpha*G@np.diff(distcdf(xbins/sigma)) + (1-alpha)*g0)
-    nhat = nhat/sum(nhat)
-    muhat = alpha*np.diff(distcdf(xbins/sigma)) + (1-alpha)*np.diff(st.uniform.cdf(xbins*100))
-    muhat = muhat/sum(muhat)
-    pdftable = muhat[:,np.newaxis]*G
-    pdftable = np.divide(pdftable, np.sum(pdftable, axis = 0))
-    Etable = (xtable[:,np.newaxis]*pdftable).sum(axis = 0)
-    xadj = intp.interp1d(xtable, Etable)(x)
-    if(plot):
-        nadjtable = np.bincount(pd.Series(pd.cut(xadj, xbins)).cat.codes.values, minlength = len(xbins)-1)/len(x)
-        pd.DataFrame(np.array([ntable, muhat, nhat, nadjtable]).T, index = xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1])
-        pd.DataFrame(np.array([1-pdftable[np.argmin(np.abs(xtable))], Etable.round(8)/xtable]).T, index = xtable, columns = ["P(Non-zero)", "Shrinkage Ratio"]).rename_axis("T-stat").plot(ylim = [0, 1])
-    return(xadj)
+    def freq(self, x):
+        return(np.bincount(pd.Series(pd.cut(x, self.xbins)).cat.codes.values, minlength=len(self.xbins)-1)/len(x))
+        
+    def fit(self, x, distcdf=st.laplace.cdf, bounds=[(0, 1), (0.1, 10)], tol=1e-7, **kwargs):
+        self.distcdf = distcdf
+        self.xfreq = self.freq(x)
+        def loss(z):
+            return(-2*self.xfreq@np.log(self.pdf_x(z[0], z[1])))
+        model = opt.differential_evolution(loss, bounds=bounds, tol=tol, **kwargs)
+        self.alpha, self.sigma = model.x
+        return(self)
+    
+    def adjuster(self, alpha, sigma, plot=True):
+        self.xpdf = self.pdf_x(alpha, sigma)
+        self.mudiff = self.diff_mu(alpha, sigma)
+        self.ddiff = self.diff_d(sigma)
+        Px = (self.G/self.xpdf).T
+        self.Ex = alpha*Px@(self.xtable*self.ddiff)
+        self.Vx = alpha*Px@(self.xtable**2*self.ddiff) - self.Ex**2
+        Pmu = self.delta*(self.G.T/self.xpdf)@self.G
+        self.Emu = alpha*Pmu@(self.xtable*self.ddiff)
+        self.Vmu = alpha*Pmu@(self.xtable**2*self.ddiff) - self.Emu**2
+        self.mucdf = self.mudiff.cumsum()
+        self.adjuster_x = intp.interp1d(self.xtable, self.Ex)
+        self.adjuster_mu = intp.interp1d(self.xtable, self.Emu)
+        self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
+        if plot:
+            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
+            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
+            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
+        return(self)
+    
+    def transform(self, x, plot=True):
+        self.xfreq = self.freq(x)
+        self.adjuster(self.alpha, self.sigma, plot=plot)
+        xadj = self.adjuster_x(x)
+        if plot:
+            xadjfreq = self.freq(xadj)
+            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
+        return(xadj)
 
 
 ## deprecated
