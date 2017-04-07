@@ -24,25 +24,27 @@ pip install dflearn
 - MLtools: machine learning tools, main toolset
     - Whole dataset
         - Data summary
-            - Variable type, NA/non-NA values, numeric summary statistics, most frequent values
+            - Variable type, NA/non-NA values, numeric summary statistics, most frequent values.
         - Data cleaning
-            - Categorical variables transformation into dummy variables
-            - Numeric variables standarzation/normalization with imputation
-            - Sparse variables deletion
-            - Collinear variables deletion
-            - Dependent/independent (Y/X) variable separation
+            - Categorical variables transformation into dummy variables.
+            - Numeric variables standarzation/normalization with imputation.
+            - Sparse variables deletion.
+            - Collinear variables deletion.
     - Machine learning
-        - Training/validation set split
+        - Training/validation set creation
+            - Single training/validation set split
+            - Cross-validation set creation
+            - Cross-join with different models
         - Model training
-            - Scikit-learn like regression/classification
+            - Scikit-learn like regression/classification.
         - Weight analysis
-            - Generalized linear model
-            - Tree models variable importance (and random forest interaction)
-            - Heritability of linear mixed model
+            - Generalized linear model.
+            - Tree models variable importance (and random forest interaction).
         - Validation and error analysis
-    - Cross Validation
-        - Cross-validation set creation
-        - Multiple model/dataset CV
+            - Two-way ANOVA and linear regression of CV validation loss.
+        - High-dimensional data analysis
+            - Heritability of linear mixed model.
+            - Bayesian inference of linear model coefficients summary.
 
 - NLtools: natural language tools, waiting for development
     - Clean text

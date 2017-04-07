@@ -9,6 +9,7 @@ import scipy.optimize as opt
 import scipy.interpolate as intp
 import patsy as ps
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 import sklearn.metrics as met
 import sklearn.linear_model as lm
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -180,7 +181,7 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
         abscor = np.abs(np.tril(np.corrcoef(df_clean, rowvar=0), -1))
         df_clean = df_clean.loc[:, np.all(abscor<cor, axis=1)]
     if(formula):
-        df_clean = ps.dmatrix(("0"+"+{}"*df_clean.shape[1]+formula).format(*df_clean.columns), data=df_clean, return_type="dataframe")
+        df_clean = ps.dmatrix("0+{}+{}".format("+".join(df_clean.columns), formula), data=df_clean, return_type="dataframe")
     return(df_clean)
 
 
@@ -636,6 +637,14 @@ def cross_join(left, right, **kwargs):
     return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
 
 
+def CVloss_anova(loss_df, namemd = ["namemd"]):
+    loss_df_c = loss_df.unstack().rename("loss").reset_index()
+    model = smf.ols("loss ~ C(level_0) + {}".format("+".join(namemd)), data=loss_df_c).fit()
+    print(sm.stats.anova_lm(model, typ=1))
+    print(model.summary2())
+    return(model)
+
+
 def MCVtest(df, ictypeL, mdpar, **kwargs):
     '''
     Using different sets of variables to build cross-validation models on the same data
@@ -844,9 +853,13 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         self.adjuster_mu = intp.interp1d(self.xtable, self.Emu)
         self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
         if plot:
-            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
-            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
-            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
+            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, 
+                         model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(
+                ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
+            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(
+                xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
+            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(
+                xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
         return(self)
     
     def transform(self, x, plot=True):
@@ -855,7 +868,9 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         xadj = self.adjuster_x(x)
         if plot:
             xadjfreq = self.freq(xadj)
-            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
+            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, 
+                         index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(
+                logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
         return(xadj)
 
 
