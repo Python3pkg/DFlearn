@@ -9,12 +9,11 @@ import scipy.optimize as opt
 import scipy.interpolate as intp
 import patsy as ps
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
 import sklearn.metrics as met
 import sklearn.linear_model as lm
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __name__ = "DFlearn"
 
 
@@ -181,7 +180,7 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
         abscor = np.abs(np.tril(np.corrcoef(df_clean, rowvar=0), -1))
         df_clean = df_clean.loc[:, np.all(abscor<cor, axis=1)]
     if(formula):
-        df_clean = ps.dmatrix("0+{}+{}".format("+".join(df_clean.columns), formula), data=df_clean, return_type="dataframe")
+        df_clean = ps.dmatrix(("0"+"+{}"*df_clean.shape[1]+formula).format(*df_clean.columns), data=df_clean, return_type="dataframe")
     return(df_clean)
 
 
@@ -637,15 +636,6 @@ def cross_join(left, right, **kwargs):
     return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
 
 
-def CVloss_anova(loss_df, namemd = ["namemd"], verbose=True):
-    loss_df_c = loss_df.unstack().rename("loss").reset_index()
-    model = smf.ols("loss ~ C(level_0) + {}".format("+".join(namemd)), data=loss_df_c).fit()
-    if verbose:
-        print(sm.stats.anova_lm(model, typ=1))
-        print(model.summary2())
-    return(model)
-
-
 def MCVtest(df, ictypeL, mdpar, **kwargs):
     '''
     Using different sets of variables to build cross-validation models on the same data
@@ -726,69 +716,81 @@ def MMCVmodel(mdsetL, mdparL):
     mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
     return(mdLL)
 
-
-def lmm_kernel(X, w=None):
-    '''
-    Create standardized kernel for linear mixed model
-
-    Parameters
-    ----------
-    X : 2d array of shape (n, p), random effects matrix
-    w : 1d array of shape (p,), scale of columns. If None, all scaled to 1
+class LinearMixedModel(BaseEstimator, RegressorMixin):
     
-    Returns
-    -------
-    G : 2d array of shape (n, n), kernel of random effects in linear mixed model
-    '''
-    X = (X - np.mean(X, axis=0))/(1e-7+np.std(X, axis=0))
-    if w is None:
-        G = (X @ X.T)/X.shape[1] 
-    else:
-        X *= w
-        G = (X @ X.T)/(w ** 2).sum()
-    return(G)
+    def __init__(self):
+        self.G = None
+        
+    def fit_kernel(self, X_g, w_g=None, scale=False):
+        '''
+        Create standardized kernel for linear mixed model
 
-
-def fastlmm(X, Y, G, **kwargs):
-    '''
-    Factored spectrally transformed linear mixed models
-
-    Parameters
-    ----------
-    X : 2d array of shape (n, p), covariate matrix
-    Y : 2d array of shape (n, 1), response variable
-    G : 2d array of shape (n, n), kernel of random effects
+        Parameters
+        ----------
+        X_g : DataFrame of shape (n, p), random effects matrix
+        w_g : 1d array of shape (p,), scale of columns. 
+        scale : bool, whether scale columns with mean 0 and std 1
     
-    Returns
-    -------
-    a dict, contains:
+        Attributes
+        ----------
+        G : 2d array of shape (n, n), kernel of random effects in linear mixed model
+        '''
+        if scale:
+            X_g = CLscale(X_g)
+        if w_g is None:
+            self.G = X_g.dot(X_g.T)/X_g.shape[1] 
+        else:
+            X_g *= w_g
+            self.G = X_g.dot(X_g.T)/(w_g ** 2).sum()
+
+    def fit_coef(self, h2):
+        D = 1 + h2*(self.S-1)
+        XDX = self.UX.T @ (self.UX/D)
+        XDY = self.UX.T @ (self.UY/D)
+        V_w = np.linalg.inv(XDX)
+        self.w = V_w @ XDY
+        self.sigma2 = ((self.UY - self.UX@self.w)**2/D).mean()
+        self.se_w = np.sqrt(np.diag(V_w)*(1-h2)*self.sigma2)
+        return((np.log(D*self.sigma2).sum() + np.linalg.slogdet(XDX/self.sigma2)[1] - np.linalg.slogdet(self.XX)[1])/self.S.shape[0])
+        
+    def fit(self, X, Y, **kwargs):
+        '''
+        Factored spectrally transformed linear mixed models
+
+        Parameters
+        ----------
+        X : DataFrame of shape (n, p), covariate matrix
+        Y : DataFrame of shape (n, 1), response variable
+    
+        Attributes
+        ----------
         w : coefficients for X
         sigma2 : total variance of residuals
         h2 : heritability of random effects
-    '''
-    Xc = np.hstack([np.ones([X.shape[0], 1]), X])
-    S, U = np.linalg.eigh(G)
-    S = S[:, np.newaxis]
-    UX = U.T @ Xc
-    UY = U.T @ Y
-    XX = Xc.T @ Xc
+        loss : -2 RE log-likelihood divided by n
+        '''
+        X_c = np.hstack([np.ones([X.shape[0], 1]), X.values])
+        if self.G is None:
+            S, U = np.ones(len(Y)), np.diag(np.ones(len(Y)))
+        else:
+            S, U = np.linalg.eigh(self.G.loc[Y.index].values)
+        self.S = S[:, np.newaxis]
+        self.UX = U.T @ X_c
+        self.UY = U.T @ Y.values
+        self.XX = X_c.T @ X_c
+        if self.G is None:
+            self.h2 = 0
+        else:
+            model = opt.differential_evolution(self.fit_coef, bounds=[(0,1)], tol=1e-7, **kwargs)
+            self.h2 = model.x[0]
+        self.loss = self.fit_coef(self.h2)
+        return(self)
     
-    def loss(h2):
-        D = 1 + h2*(S-1)
-        XDX = UX.T @ (UX/D)
-        XDY = UX.T @ (UY/D)
-        w = np.linalg.solve(XDX, XDY)
-        sigma2 = ((UY - UX@w)**2/D).mean()
-        return((np.log(D*sigma2).sum() + np.linalg.slogdet(XDX/sigma2)[1] - np.linalg.slogdet(XX)[1])/Y.shape[0])
+    def predict(self, X):
+        X_c = np.hstack([np.ones([X.shape[0], 1]), X.values])
+        return(X_c @ self.w)
+
     
-    model = opt.differential_evolution(loss, bounds=[(0,1)], tol=1e-7, **kwargs)
-    h2 = model.x[0]
-    D = 1 + h2*(S-1)
-    w = np.linalg.solve(UX.T@(UX/D), UX.T@(UY/D))
-    sigma2 = ((UY - UX@w)**2 / D).mean()
-    return({"w": w, "sigma2": sigma2, "h2": h2})
-
-
 class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
     '''
     Adjust t-statistics of a large number of independent tests with Bayesian inference.
@@ -854,13 +856,9 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         self.adjuster_mu = intp.interp1d(self.xtable, self.Emu)
         self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
         if plot:
-            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, 
-                         model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(
-                ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
-            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(
-                xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
-            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(
-                xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
+            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
+            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
+            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
         return(self)
     
     def transform(self, x, plot=True):
@@ -869,9 +867,7 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         xadj = self.adjuster_x(x)
         if plot:
             xadjfreq = self.freq(xadj)
-            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, 
-                         index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(
-                logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
+            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
         return(xadj)
 
 
