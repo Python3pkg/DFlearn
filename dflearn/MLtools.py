@@ -637,11 +637,12 @@ def cross_join(left, right, **kwargs):
     return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
 
 
-def CVloss_anova(loss_df, namemd = ["namemd"]):
+def CVloss_anova(loss_df, namemd = ["namemd"], verbose=True):
     loss_df_c = loss_df.unstack().rename("loss").reset_index()
     model = smf.ols("loss ~ C(level_0) + {}".format("+".join(namemd)), data=loss_df_c).fit()
-    print(sm.stats.anova_lm(model, typ=1))
-    print(model.summary2())
+    if verbose:
+        print(sm.stats.anova_lm(model, typ=1))
+        print(model.summary2())
     return(model)
 
 
