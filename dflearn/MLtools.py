@@ -737,21 +737,21 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
         G : 2d array of shape (n, n), kernel of random effects in linear mixed model
         '''
         if scale:
-            X_g = CLscale(X_g)/np.sqrt(X_g.shape[1]) 
+            X_g = CLscale(X_g) / np.sqrt(X_g.shape[1]) 
         if w_g is None:
             self.G = X_g.dot(X_g.T)
         else:
             X_g *= w_g
-            self.G = X_g.dot(X_g.T)/(w_g ** 2).mean()
+            self.G = X_g.dot(X_g.T) / (w_g ** 2).mean()
         return(self)
 
     def fit_coef(self, h2):
-        D = 1 + h2*(self.S-1)
-        XDX = (self.UX.T/D) @ self.UX
-        XDY = (self.UX.T/D) @ self.UY
+        D = 1 + h2 * (self.S - 1)
+        XDX = (self.UX.T / D) @ self.UX
+        XDY = (self.UX.T / D) @ self.UY
         self.w = np.linalg.solve(XDX, XDY)
-        self.sigma2 = ((self.UY - self.UX@self.w).T**2/D).mean()
-        return((np.log(D*self.sigma2).sum() + np.linalg.slogdet(XDX/self.sigma2)[1] - np.linalg.slogdet(self.XX)[1])/len(self.S))
+        self.sigma2 = ((self.UY - self.UX @ self.w).T ** 2 / D).mean()
+        return((np.log(D*self.sigma2).sum() + np.linalg.slogdet(XDX/self.sigma2)[1] - np.linalg.slogdet(self.XX)[1]) / len(self.S))
         
     def fit(self, X, Y, **kwargs):
         '''
@@ -774,6 +774,7 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
             self.S, U = np.ones(len(Y)), np.diag(np.ones(len(Y)))
         else:
             self.S, U = np.linalg.eigh(self.G.loc[Y.index].values)
+        self.dof = X.shape[0] - X.shape[1] - 1
         self.UX = U.T @ X_c
         self.UY = U.T @ Y.values
         self.XX = X_c.T @ X_c
@@ -782,6 +783,7 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
         else:
             model = opt.differential_evolution(self.fit_coef, bounds=[(0,1)], tol=1e-7, **kwargs)
             self.h2 = model.x[0]
+            self.dof -= 1
         self.loss = self.fit_coef(self.h2)
         self.w = pd.Series(self.w.flatten(), np.insert(X.columns, 0, "(Intercept)"))
         return(self)
@@ -790,14 +792,15 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
         return(self.w.values[0]+X.dot(self.w.values[1:]))
     
     def summary(self):
-        print("Heritability {:.3f}, MSE: {:.6f}".format(self.h2, self.sigma2*(1-self.h2)))
+        model_t = st.t(df=self.dof)
+        out_S = pd.Series([self.h2, self.sigma2*(1-self.h2), len(self.w), self.dof], ["Intra-class correlation", "MSE", "Number of fixed weight", "Degree of freedom"])
         out_df = self.w.to_frame("coef")
         out_df["se"] = np.sqrt(np.diag(np.linalg.inv(self.XX))*(1-self.h2)*self.sigma2)
         out_df["t"] = self.w/out_df["se"]
-        out_df["p-value"] = 1-st.norm.cdf(np.abs(out_df["t"]))
-        out_df["0.025 CI"] = self.w-1.96*out_df["se"]
-        out_df["0.975 CI"] = self.w+1.96*out_df["se"]
-        return(out_df)
+        out_df["p-value"] = 2*model_t.cdf(-np.abs(out_df["t"]))
+        out_df["0.025 CI"] = self.w+model_t.ppf(0.025)*out_df["se"]
+        out_df["0.975 CI"] = self.w+model_t.ppf(0.975)*out_df["se"]
+        return(out_S, out_df)
 
     
 class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
