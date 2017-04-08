@@ -1,6 +1,6 @@
-![Latest Release](https://img.shields.io/pypi/v/dflearn.svg)
-![License](https://img.shields.io/pypi/l/dflearn.svg)
-![Build Status](https://travis-ci.org/founderfan/DFlearn.svg?branch=master)
+[![Latest Release](https://img.shields.io/pypi/v/dflearn.svg)](https://pypi.python.org/pypi/dflearn/)
+[![License](https://img.shields.io/pypi/l/dflearn.svg)](https://pypi.python.org/pypi/dflearn/)
+[![Build Status](https://travis-ci.org/founderfan/DFlearn.svg?branch=master)](https://travis-ci.org/founderfan/DFlearn)
 
 A data analysis and machine-learning toolset using pandas DataFrame and scikit-learn models.
 
@@ -32,19 +32,16 @@ pip install dflearn
             - Collinear variables deletion.
     - Machine learning
         - Training/validation set creation
-            - Single training/validation set split
-            - Cross-validation set creation
-            - Cross-join with different models
+            - Single training/validation set split.
+            - Cross-validation set creation.
+            - Cross-join with different models.
         - Model training
             - Scikit-learn like regression/classification.
-        - Weight analysis
-            - Generalized linear model.
-            - Tree models variable importance (and random forest interaction).
+        - Variable analysis
+            - Variable importance inference (tree models, random forest interactions)
+            - Bayesian inference of high-dimensional linear coefficients summary.
         - Validation and error analysis
-            - Two-way ANOVA and linear regression of CV validation loss.
-        - High-dimensional data analysis
-            - Heritability of linear mixed model.
-            - Bayesian inference of linear model coefficients summary.
+            - Model effects inference on cross-validation loss with linear mixed model
 
 - NLtools: natural language tools, waiting for development
     - Clean text

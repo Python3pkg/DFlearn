@@ -41,27 +41,22 @@ Contents
 
       -  Training/validation set creation
 
-         -  Single training/validation set split
-         -  Cross-validation set creation
-         -  Cross-join with different models
+         -  Single training/validation set split.
+         -  Cross-validation set creation.
+         -  Cross-join with different models.
 
       -  Model training
 
          -  Scikit-learn like regression/classification.
 
-      -  Weight analysis
+      -  Variable analysis
 
-         -  Generalized linear model.
-         -  Tree models variable importance (and random forest interaction).
+         -  Variable importance inference (tree models, random forest interactions)
+         -  Bayesian inference of high-dimensional linear coefficients summary.
 
       -  Validation and error analysis
 
-         -  Two-way ANOVA and linear regression of CV validation loss.
-
-      -  High-dimensional data analysis
-
-         -  Heritability of linear mixed model.
-         -  Bayesian inference of linear model coefficients summary.
+         -  Model effects inference on cross-validation loss with linear mixed model
 
 -  NLtools: natural language tools, waiting for development
 
@@ -79,5 +74,8 @@ License
 MIT license
 
 .. |Latest Release| image:: https://img.shields.io/pypi/v/dflearn.svg
+   :target: https://pypi.python.org/pypi/dflearn/
 .. |License| image:: https://img.shields.io/pypi/l/dflearn.svg
+   :target: https://pypi.python.org/pypi/dflearn/
 .. |Build Status| image:: https://travis-ci.org/founderfan/DFlearn.svg?branch=master
+   :target: https://travis-ci.org/founderfan/DFlearn
