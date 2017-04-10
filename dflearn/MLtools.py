@@ -1,6 +1,7 @@
 import time
 import re
 import inspect
+import multiprocessing
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ import sklearn.metrics as met
 import sklearn.linear_model as lm
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 __name__ = "DFlearn"
 
 
@@ -77,9 +78,19 @@ def plyargs(f, argL, argname, f_con=list, argcon={}, **kwargs):
     return(op)
 
 
-def apply_df(df, f, axis=0, **kwargs):
-    L = df.iterrows() if axis==0 else df.iteritems()
-    S = pd.Series([f(i_val) for i, i_val in L], df.index, **kwargs)
+def apply_df(df, f, axis=0, n_jobs=1, **kwargs):
+    if axis == 0:
+        L = df.iterrows()
+        index = df.index
+    else:
+        L = df.iteritems()
+        index = df.columns
+    if n_jobs == 1:
+        S = pd.Series(map(f, L), index, **kwargs)
+    else:
+        pool = multiprocessing.Pool(n_jobs)
+        S = pd.Series(pool.map(f, L), index, **kwargs)
+        pool.close()
     return(S)
 
 
