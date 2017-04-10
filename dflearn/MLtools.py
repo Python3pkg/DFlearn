@@ -203,62 +203,6 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
 
 ## Machine Learning Models
 
-def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offset = False, **kwargs):
-    par = {}
-    par.update(par_model)
-    if len(X_offset):
-        cov = np.hstack([np.ones((len(Y), 1)), X_offset.values])
-        if fix_offset:
-            model_cov = f_model(Y.values, cov, **par).fit()
-            par.update({"offset": np.dot(cov, model_cov.params)})
-            cov = np.ones((len(Y), 1))
-    else:
-        cov = np.ones((len(Y), 1))
-    def fit(item):
-        model = f_model(Y.values, np.hstack([cov, item[1].values[:, np.newaxis]]), **par).fit()
-        return([model.params[-1], model.bse[-1], model.tvalues[-1], model.pvalues[-1]])
-    op = pd.DataFrame(list(map(fit, X.iteritems())), index=X.columns, columns=["beta", "std", "t", "p-value"])
-    return(op)
-
-
-def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], rank=True, pct=1, **kwargs):
-    '''
-    Train a model of statsmodel form
-    
-    Parameters
-    ----------
-    xt : DataFrame, training X set
-    xv : DataFrame, validation X set
-    yt : DataFrame, training Y set
-    yv : DataFrame, validation Y set
-    seed : int, random seed
-    f_model : function, model to train
-    par_model : dict, arguments to train f_model
-    ic_offset : str, offset column name of X of which the beta is fixed at 1
-    
-    Returns
-    -------
-    model : trained model
-    '''
-    par = {}
-    par.update(par_model)
-    if len(ic_offset):
-        xt_offset = xt[ic_offset]
-    else:
-        xt_offset = []
-    if par.get("family"):
-        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.GLM, par_model = par)
-        model = lm.LogisticRegression()
-        model.intercept_ = 1/(1/np.mean(yt.values) - 1)
-    else:
-        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.OLS, par_model = par)
-        model = lm.LinearRegression()
-        model.intercept_ = np.mean(yt.values)
-    if rank:
-        daw["p-value"] = daw["p-value"].rank(pct = True)
-    model.coef_ = (daw["beta"].values*(daw["p-value"].values <= pct))[np.newaxis, :]
-    return(model)
-
 
 def MLstatsmodel(xt, yt, xv=None, yv=None, seed=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
     '''
@@ -734,7 +678,48 @@ def MMCVmodel(mdsetL, mdparL):
     return(mdLL)
 
 
-class LinearMixedModel(BaseEstimator, RegressorMixin):
+class LinearClass(BaseEstimator, RegressorMixin):
+    def __init__(self):
+        pass
+    def summary(self):
+        model_t = st.t(df=self.dof)
+        out_S = pd.Series([self.sigma2, len(self.w), self.dof], ["Total Sigma2", "Parameters", "Degree of freedom"])
+        out_df = pd.DataFrame({"coef": self.w, "se": self.w_se}, self.columns)
+        out_df["t"] = out_df["coef"]/out_df["se"]
+        out_df["p-value"] = 2*model_t.cdf(-np.abs(out_df["t"]))
+        out_df["0.025 CI"] = out_df["coef"]+model_t.ppf(0.025)*out_df["se"]
+        out_df["0.975 CI"] = out_df["coef"]+model_t.ppf(0.975)*out_df["se"]
+        return(out_S, out_df)
+    
+    
+class LinearSingleModel(LinearClass):
+    def __init__(self):
+        pass
+    def fit(self, X, Y, X_offset):
+        self.columns = X.columns
+        X0 = np.hstack([np.ones([Y.shape[0], 1]), X_offset.values])
+        Y = Y.values
+        X = X.values
+        XX_A = X0.T @ X0
+        XX_B = X0.T @ X
+        XX_c = (X ** 2).sum(axis=0)
+        XY_a = X0.T @ Y
+        XY_b = X.T @ Y
+        XX_Ainv = np.linalg.inv(XX_A)
+        XX_AinvB = XX_Ainv @ XX_B
+        self.w0 = XX_Ainv @ XY_a
+        self.sigma2 = ((Y - X0 @ self.w0)**2).mean()
+        XXinv_c = 1/(XX_c - (XX_B * XX_AinvB).sum(axis=0))
+        XXinv_B = - XXinv_c * XX_AinvB
+        # XXinv_Adiag = np.diag(XX_Ainv)[:, np.newaxis] + XXinv_c * (XX_AinvB ** 2)
+        # self.W0 = self.w0 + XXinv_c * XX_AinvB * (XX_AinvB.T @ XY_a)[:,0] + XXinv_B * XY_b.T
+        self.w = (XY_a.T @ XXinv_B + XXinv_c * XY_b.T)[0]
+        self.w_se = np.sqrt(XXinv_c * self.sigma2)
+        self.dof = len(X) - len(w0) - 1
+        return(self)
+
+    
+class LinearMixedModel(LinearClass):
     
     def __init__(self):
         self.G = None
@@ -786,6 +771,7 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
         h2 : heritability of random effects
         loss : -2 RE log-likelihood divided by n
         '''
+        self.columns = np.insert(X.columns, 0, "(Intercept)")
         X_c = np.hstack([np.ones([X.shape[0], 1]), X.values])
         if self.G is None:
             self.S, U = np.ones(len(Y)), np.diag(np.ones(len(Y)))
@@ -802,22 +788,12 @@ class LinearMixedModel(BaseEstimator, RegressorMixin):
             self.h2 = model.x[0]
             self.dof -= 1
         self.loss = self.fit_coef(self.h2)
-        self.w = pd.Series(self.w.flatten(), np.insert(X.columns, 0, "(Intercept)"))
+        self.w = self.w.flatten()
+        self.w_se = np.sqrt(np.diag(np.linalg.inv(self.XX))*(1-self.h2)*self.sigma2)
         return(self)
     
     def predict(self, X):
         return(self.w.values[0]+X.dot(self.w.values[1:]))
-    
-    def summary(self):
-        model_t = st.t(df=self.dof)
-        out_S = pd.Series([self.h2, self.sigma2*(1-self.h2), len(self.w), self.dof], ["Intra-class correlation", "MSE", "Number of fixed weight", "Degree of freedom"])
-        out_df = self.w.to_frame("coef")
-        out_df["se"] = np.sqrt(np.diag(np.linalg.inv(self.XX))*(1-self.h2)*self.sigma2)
-        out_df["t"] = self.w/out_df["se"]
-        out_df["p-value"] = 2*model_t.cdf(-np.abs(out_df["t"]))
-        out_df["0.025 CI"] = self.w+model_t.ppf(0.025)*out_df["se"]
-        out_df["0.975 CI"] = self.w+model_t.ppf(0.975)*out_df["se"]
-        return(out_S, out_df)
 
     
 class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
@@ -974,3 +950,56 @@ def CVmodel(md):
     md["lossL"] = CVply(f=Loss, parcv={"yp": "yvpL"}, f_con=pd.Series, **md)
     md["yvpL"] = pd.concat(md["yvpL"]).loc[md["Y"].index]
     return(md)
+def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offset = False, **kwargs):
+    par = {}
+    par.update(par_model)
+    if len(X_offset):
+        cov = np.hstack([np.ones((len(Y), 1)), X_offset.values])
+        if fix_offset:
+            model_cov = f_model(Y.values, cov, **par).fit()
+            par.update({"offset": np.dot(cov, model_cov.params)})
+            cov = np.ones((len(Y), 1))
+    else:
+        cov = np.ones((len(Y), 1))
+    def fit(item):
+        model = f_model(Y.values, np.hstack([cov, item[1].values[:, np.newaxis]]), **par).fit()
+        return([model.params[-1], model.bse[-1], model.tvalues[-1], model.pvalues[-1]])
+    op = pd.DataFrame(list(map(fit, X.iteritems())), index=X.columns, columns=["beta", "std", "t", "p-value"])
+    return(op)
+def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], rank=True, pct=1, **kwargs):
+    '''
+    Train a model of statsmodel form
+    
+    Parameters
+    ----------
+    xt : DataFrame, training X set
+    xv : DataFrame, validation X set
+    yt : DataFrame, training Y set
+    yv : DataFrame, validation Y set
+    seed : int, random seed
+    f_model : function, model to train
+    par_model : dict, arguments to train f_model
+    ic_offset : str, offset column name of X of which the beta is fixed at 1
+    
+    Returns
+    -------
+    model : trained model
+    '''
+    par = {}
+    par.update(par_model)
+    if len(ic_offset):
+        xt_offset = xt[ic_offset]
+    else:
+        xt_offset = []
+    if par.get("family"):
+        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.GLM, par_model = par)
+        model = lm.LogisticRegression()
+        model.intercept_ = 1/(1/np.mean(yt.values) - 1)
+    else:
+        daw = MDSingleReg(xt.drop(ic_offset, axis = 1), yt, xt_offset, f_model = sm.OLS, par_model = par)
+        model = lm.LinearRegression()
+        model.intercept_ = np.mean(yt.values)
+    if rank:
+        daw["p-value"] = daw["p-value"].rank(pct = True)
+    model.coef_ = (daw["beta"].values*(daw["p-value"].values <= pct))[np.newaxis, :]
+    return(model)
