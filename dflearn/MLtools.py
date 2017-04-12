@@ -18,30 +18,36 @@ __version__ = "0.1.8"
 __name__ = "DFlearn"
 
 
-def validpar(f, x):
+def validpar(func, x):
     '''
-    Avoid invalid parameters for a function
+    Avoid invalid parameters for a function.
     
     Parameters
     ----------
-    f : function, which cannot accept invalid parameters
-    x : dict, including pairs of parameter name and value
+    func : function
+        Which cannot accept invalid parameters.
+    x : dict
+        Including pairs of parameter name and value.
     
     Returns
     -------
-    op : dict, valid parameters for the function
+    op : dict
+        Valid parameters for the function.
     '''
-    op = dict(i for i in x.items() if i[0] in inspect.signature(f).parameters.keys())
+    op = dict(i for i in x.items() if i[0] in inspect.signature(func).parameters.keys())
     return(op)
 
 
-def strnum(x, f_reduce=max):
+def strnum(x, func=max):
     '''
-    Convert string to number, only keep numerical part (0-9 or .), otherwise return np.nan
+    Convert string to number, only keep numerical part (0-9 or .), otherwise return np.nan.
     
     Parameters
     ----------
-    x : string, to convert
+    x : string
+        To convert to numbers.
+	func : function
+		Function to reduce multiple numbers.
     
     Returns
     -------
@@ -50,35 +56,62 @@ def strnum(x, f_reduce=max):
     if isinstance(x, str):
         numL = re.findall(r'\d[\.\d]+', x)
         if numL:
-            return(f_reduce([float(i) for i in numL]))
+            return(func([float(i) for i in numL]))
         else:
             return(np.nan)
     else:
         return(x)
 
     
-def plyargs(f, argL, argname, f_con=list, argcon={}, **kwargs):
+def plyargs(func, argL, argname, f_concat=list, argcon={}, **kwargs):
     '''
-    Apply function on a list of arguments
+    Apply function on a list of arguments.
     
     Parameters
     ----------
-    f : function, to apply arguments
-    argL : list (of lists), iterated argument values
-    argname : list, argument names, same length as argL
-    f_con : function, to concat iterated outputs of f
-    argcon : dict, arguments of f_con
-    **kwargs : arguments of f
+    func : function
+        To apply arguments.
+    argL : list (of lists)
+        Iterated argument values.
+    argname : list
+        Argument names, same length as argL.
+    f_concat : function
+        To concat iterated outputs of the function.
+    argcon : dict
+        arguments of f_con
+    Additional keyword arguments will be passed as keywords to the function.
     
     Returns
     -------
-    op : list-like, iterated outputs of f
+    op : list-like
+        iterated outputs of the function.
     '''
-    op = f_con(map(lambda arg: f(**dict(zip(*[argname, arg])), **kwargs), zip(*argL)), **argcon)
+    op = f_concat(map(lambda arg: func(**dict(zip(*[argname, arg])), **kwargs), zip(*argL)), **argcon)
     return(op)
 
 
-def apply_df(df, f, axis=0, n_jobs=1, **kwargs):
+def apply_df(df, func, axis=0, n_jobs=1, **kwargs):
+    '''
+    Apply function on each row/column of dataframe and return a Series.
+    
+    Parameters
+    ----------
+	df : DataFrame
+		To apply function.
+    func : function
+        Function to apply to each column/row.
+    axis :  {0, 1}, default 0
+	    - 0 or 'index': apply function to each column.
+	    - 1 or 'columns': apply function to each row.
+	n_jobs : int, optional (default=1)
+        The number of jobs to run in parallel.
+    Additional keyword arguments will be passed as keywords to the function.
+    
+    Returns
+    -------
+    op : list-like
+        iterated outputs of f.
+    '''
     if axis == 0:
         L = df.iterrows()
         index = df.index
@@ -86,37 +119,55 @@ def apply_df(df, f, axis=0, n_jobs=1, **kwargs):
         L = df.iteritems()
         index = df.columns
     if n_jobs == 1:
-        S = pd.Series(map(f, L), index, **kwargs)
+        S = pd.Series(map(func, L), index, **kwargs)
     else:
         pool = multiprocessing.Pool(n_jobs)
-        S = pd.Series(pool.map(f, L), index, **kwargs)
+        S = pd.Series(pool.map(func, L), index, **kwargs)
         pool.close()
     return(S)
 
 
 def collinearvif(df):
+    '''
+    Compute variance inflation factor (VIF) of a DataFrame.
+    
+    Parameters
+    ----------
+	df : DataFrame
+	
+    Returns
+    -------
+    op : Series
+        VIF values of each column.
+	'''
     op = pd.Series(np.diag(np.linalg.inv(df.corr())), index=df.columns, name = "CollinearVIF")
     return(op)
 
 
 def summary(df, n=5, pct=[0.1, 0.5, 0.9]):
     '''
-    Summarize pandas Series for data type, sample size, numerical statistics and frequency
+    Summarize DataFrame along columns for data type, sample size, numerical statistics and frequency
     
     Parameters
     ----------
-    df : DataFrame, to summarize
-    n : int, the number of foremost frequent categories of frequency table
-    pct : list, percentiles for numerical Series statistics
+    df : DataFrame
+	    To summary.
+    n : int
+        The number of foremost frequent categories of frequency table.
+    pct : list
+        Percentiles for numerical statistics.
 
     Returns
     -------
-    op : DataFrame, summary of Series
+    op : DataFrame
+        summary of DataFrame along columns.
     '''
     
     def freq(s):
         op = pd.value_counts(s)
-        op = pd.concat([pd.Series(op.index[:n]).rename(lambda x: "FreqCat{}".format(x+1)), pd.Series(op.values[:n]).rename(lambda x: "FreqVal{}".format(x+1)).T, pd.Series(op.iloc[n:].sum(), index=["Freq_Others"])])
+        op = pd.concat([pd.Series(op.index[:n]).rename(lambda x: "FreqCat{}".format(x+1)), 
+		                pd.Series(op.values[:n]).rename(lambda x: "FreqVal{}".format(x+1)).T, 
+						pd.Series(op.iloc[n:].sum(), index=["Freq_Others"])])
         return(op)
     op = pd.concat([df.dtypes.rename("Type"), df.notnull().sum().rename("N"), df.describe(pct).iloc[1:].T, df.apply(freq).T], axis=1).loc[df.columns]
     return(op)
@@ -126,7 +177,7 @@ def summary(df, n=5, pct=[0.1, 0.5, 0.9]):
 
 def CLtimenum(s):
     '''
-    Convert datetime variable to numeric variable
+    Convert datetime variable to numeric variable.
     '''
     op = pd.DatetimeIndex(s)
     op = pd.get_dummies(pd.DataFrame(dict(zip(*[["{}__{}".format(s.name, i) for i in ["Month", "Year"]], [op.month, op.year]])), index=s.index).astype("O"))
@@ -135,23 +186,31 @@ def CLtimenum(s):
 
 def CLnormal(df):
     '''
-    Normalize the distribution of numeric DataFrame to standard normal distribution by rank
+    Normalize the distribution of numeric DataFrame to standard normal distribution by rank.
+	
+    See also
+    --------
+	CLscale
     '''
-    op = pd.DataFrame(st.norm.ppf((df.rank(pct = True) - 0.5/df.shape[0]).fillna(0.5)), index=df.index, columns=df.columns, dtype = "float32")
+    op = pd.DataFrame(st.norm.ppf((df.rank(pct = True) - 0.5/df.shape[0]).fillna(0.5)), index=df.index, columns=df.columns)
     return(op)
 
 
 def CLscale(df):
     '''
-    Standardize the distribution of numeric DataFrame to mean 0 and standard deviation 1
+    Standardize the distribution of numeric DataFrame to mean 0 and standard deviation 1.
+	
+	See also
+    --------
+	CLnormal
     '''
-    op = ((df - df.mean())/df.std()).fillna(0).astype("float32")
+    op = ((df - df.mean())/df.std()).fillna(0)
     return(op)
 
 
 def CLsparse_cat(s, sp=0.01):
     '''
-    Clean a object Series with sparse values converted to "others"
+    Clean a object Series with sparse values converted to "others".
     '''
     sfreq = pd.value_counts(s) > sp*s.shape[0]
     op = s.where(s.isin(sfreq.index[sfreq]), "others")
@@ -160,7 +219,7 @@ def CLsparse_cat(s, sp=0.01):
 
 def CLsparse(s):
     '''
-    Check the percentage of non-most-frequent and non-null values in a Series
+    Check the percentage of non-most-frequent and non-null values in a Series.
     '''
     op = 1 - s.isnull().mean()
     if op > 0:
@@ -168,21 +227,28 @@ def CLsparse(s):
     return(op)
 
 
-def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
+def CLdata(df, sp=0, cor=1, f_norm=CLscale, formula=None, **kwargs):
     '''
     Clean a pandas DataFrame according to dtype (numeric or object)
     
     Parameters
     ----------
-    df : DataFrame, data to clean
-    sparse : float: (0, 1], ratio threshold of unique and missing values to delete a variable
-    f_norm : function, use to standardize numeric variables
-    formula : str, add transformed or interaction terms of variables
-    cor : float: (0, 1], threshold of absolute correlation to remove later collinear variables
+    df : DataFrame
+        data to clean.
+    sp : float
+        between [0, 1), threshold of ratio of unique and missing values to delete variables.
+    cor : float
+        between (0, 1], threshold of absolute correlation to remove later collinear variables.
+	f_norm : function
+        use to standardize numeric variables.
+    formula : str
+        add transformed or interaction terms of variables.
+
     
     Returns
     -------
-    df_clean : DataFrame, cleaned data
+    df_clean : DataFrame
+        cleaned data
     '''
     df_num = df.select_dtypes(["number"])
     df_cat = df.select_dtypes(["object"])
@@ -204,20 +270,28 @@ def CLdata(df, sp=0, cor=1, f_norm = CLscale, formula=None, **kwargs):
 ## Machine Learning Models
 
 
-def MLstatsmodel(xt, yt, xv=None, yv=None, seed=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
+def MLstatsmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
     '''
     Train a model of statsmodel form
     
     Parameters
     ----------
-    xt : DataFrame, training X set
-    xv : DataFrame, validation X set
-    yt : DataFrame, training Y set
-    yv : DataFrame, validation Y set
-    seed : int, random seed
-    f_model : function, model to train
-    par_model : dict, arguments to train f_model
-    ic_offset : str, offset column name of X of which the beta is fixed at 1
+    xt : DataFrame
+        training X set.
+    xv : DataFrame
+        validation X set.
+    yt : DataFrame
+        training Y set.
+    yv : DataFrame
+        validation Y set.
+    random_state : int
+        the seed used by the random number generator.
+    f_model : function
+        model to train.
+    par_model : dict
+        arguments to train f_model.
+    ic_offset : str
+        offset column name of X of which the beta is fixed at 1.
     
     Returns
     -------
@@ -233,26 +307,29 @@ def MLstatsmodel(xt, yt, xv=None, yv=None, seed=0, f_model=sm.GLM, par_model={"f
 
 ## Machine Learning Procedures
 
-def MDinit(f_model=lm.LogisticRegression, par_model={}, seed=0, **kwargs):
+def MDinit(f_model=lm.LogisticRegression, par_model={}, random_state=0, **kwargs):
     '''
-    Initiate a model of scikit-learn form
+    Initiate a model of scikit-learn form.
     
     Parameters
     ----------
-    seed : int or list, random seed. If a list, create a list of models
-    f_model : function, model to train
-    par_model : dict, arguments to initiate a f_model
+    random_state : int or list
+        the seed used by the random number generator. If a list, create a list of models.
+    f_model : function
+        model to train.
+    par_model : dict
+        arguments to initiate a f_model.
     
     Returns
     -------
     out: initiated model or model list
     '''
-    if hasattr(seed, "__iter__"):
-        return([MDinit(f_model, par_model, i) for i in seed])
+    if hasattr(random_state, "__iter__"):
+        return([MDinit(f_model, par_model, i) for i in random_state])
     else:
         par = {'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced'}
         par.update(par_model)
-        return(f_model(**validpar(f_model, {**par_model, "random_state": seed, "seed": seed})))
+        return(f_model(**validpar(f_model, {**par_model, "random_state": random_state, "random_state": random_state})))
     
     
 def MDfit(model, xt, yt, xv=None, yv=None, par_fit={'verbose': False}, **kwargs):
@@ -261,13 +338,19 @@ def MDfit(model, xt, yt, xv=None, yv=None, par_fit={'verbose': False}, **kwargs)
     
     Parameters
     ----------
-    xt : DataFrame, training X set
-    xv : DataFrame, validation X set
-    yt : DataFrame, training Y set
-    yv : DataFrame, validation Y set
-    seed : int, random seed
+    xt : DataFrame
+        training X set.
+    xv : DataFrame
+        validation X set.
+    yt : DataFrame
+        training Y set.
+    yv : DataFrame
+        validation Y set.
+    random_state : int
+        the seed used by the random number generator.
     model : model to train
-    par_fit : dict, arguments to train f_model
+    par_fit : dict
+        arguments to train f_model.
     
     Returns
     -------
@@ -281,17 +364,20 @@ def MDfit(model, xt, yt, xv=None, yv=None, par_fit={'verbose': False}, **kwargs)
 
 def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwargs):
     '''
-    Use trained model and validation X to predict Y
+    Use trained model and validation X to predict Y.
     
     Parameters
     ----------
     model : trained model
-    xv : DataFrame, validation X to predict Y
-    ic_offset : str, offset column name of X for Y
+    xv : DataFrame
+        validation X to predict Y.
+    ic_offset : str
+        offset column name of X for Y.
     
     Returns
     -------
-    yvp : DataFrame, predicted Y
+    yvp : DataFrame
+        predicted Y for validation set.
     '''
     xvo = xv
     if len(ic_offset):
@@ -312,16 +398,18 @@ def MDpred(model, xv, ic_offset=[], f_loss=met.roc_auc_score, logit=False, **kwa
 
 def MDweight(model, xt, ic_offset=[], **kwargs):
     '''
-    Use trained model and X to get variable weights
+    Use trained model and X to get variable weights.
     
     Parameters
     ----------
     model : trained model
-    xt : DataFrame, get variable name from training X set
+    xt : DataFrame
+        get variable name from training X set.
     
     Returns
     -------
-    op : Series, variable weights of the model
+    op : Series
+        variable weights of the model.
     '''
     if type(model).__name__ in ['Ridge', "Lasso"]:
         op = pd.Series(model.coef_, index=xt.drop(ic_offset, axis=1).columns)
@@ -330,7 +418,7 @@ def MDweight(model, xt, ic_offset=[], **kwargs):
     elif 'sklearn.ensemble' in type(model).__module__:
         op = pd.Series(model.feature_importances_, index=xt.drop(ic_offset, axis=1).columns)
     elif type(model).__name__ in ["GLMResultsWrapper"]:
-        op = pd.concat([model.params, model.pvalues], axis=1, keys=["coef", "P-value"])
+        op = pd.concat([model.params, model.t()], axis=1, keys=["coef", "t"])
     else:
         op = pd.Series()
     return(op)
@@ -342,13 +430,17 @@ def Loss(yv, yp, f_loss=met.roc_auc_score, **kwargs):
     
     Parameters
     ----------
-    yv : DataFrame, validation Y
-    yp : DataFrame, predicted Y
-    f_loss : function, use to calculate loss
+    yv : DataFrame
+        validation Y.
+    yp : DataFrame
+        predicted Y.
+    f_loss : function
+        use to calculate loss.
     
     Returns
     -------
-    op : numeric, loss
+    op : float
+        loss
     '''
     op = f_loss(np.array(yv).flatten(), np.array(yp).flatten())
     return(op)
@@ -356,17 +448,21 @@ def Loss(yv, yp, f_loss=met.roc_auc_score, **kwargs):
 
 def roc(yv, yp, plot=False, **kwargs):
     '''
-    Get ROC curve between binary validation Y and predicted Y
+    Get ROC curve between binary validation Y and predicted Y.
     
     Parameters
     ----------
-    yv : DataFrame, binary validation Y
-    yp : DataFrame, predicted Y
-    plot : bool, whether plot a ROC curve
+    yv : DataFrame
+        binary validation Y.
+    yp : DataFrame
+        predicted Y.
+    plot : bool
+        whether plot a ROC curve.
     
     Returns
     -------
-    op : DataFrame, elements of an ROC curve including: true positive ratio, false positive ratio, and threshold
+    op : DataFrame
+        elements of an ROC curve including: true positive ratio, false positive ratio, and threshold.
     '''
     op = pd.DataFrame(dict(zip(*[["FPR", "TPR", "Threshold"], met.roc_curve(yv, yp)])))
     if plot:
@@ -375,7 +471,6 @@ def roc(yv, yp, plot=False, **kwargs):
 
 
 ## Model Analysis
-
 
 def MDweight_analysis(model, xt, **kwargs):
     w = MDweight(model, xt, **kwargs)
@@ -425,55 +520,64 @@ def MDforest_set(model, xt = None, max_depth = 5, alpha = 0.05):
 
 def DMinit(mdset_df, mdpar_df):
     '''
-    Initiate a DataFrame-based CV model set
+    Initiate a DataFrame-based CV model set.
     
     Parameters
     ----------
-    mdset_df : DataFrame, for CV data
-    mdpar_df : DataFrame, for model parameters
+    mdset_df : DataFrame
+        for CV data.
+    mdpar_df : DataFrame
+        for model parameters.
     
     Returns
     -------
-    out: DataFrame, cross-joined CV data-model list
+    out: DataFrame
+        cross-joined CV data-model list.
     '''
     md_df = cross_join(mdset_df, mdpar_df)
-    md_df['seed'] = md_df['irts'].apply(np.unique)
+    md_df['random_state'] = md_df['irts'].apply(np.unique)
     md_df["modelL"] = md_df.apply(lambda x: MDinit(**x.to_dict()), axis=1)
-    return(md_df.drop(["seed", "f_model", "par_model"], axis=1))
+    return(md_df.drop(["random_state", "f_model", "par_model"], axis=1))
 
 
-def Kfolds(x, k=10, seed=1):
+def Kfolds(x, k=10, random_state=1):
     '''
-    Use index to create a list of K-folds cross-validation indices
+    Use index to create a list of K-folds cross-validation indices.
     
     Parameters
     ----------
-    x : list, sample index
-    k : int, number of folds
-    seed : int, random seed
+    x : list
+        sample index.
+    k : int
+        number of folds.
+    random_state : int
+        the seed used by the random number generator.
     
     Returns
     -------
-    op : DataFrame, created K-folds cross-validation indices with two columns: 
-        group: int, group index from 0 to k-1
-        x: sample index
+    op : array
     '''
-    np.random.seed(seed)
+    np.random.random_state(random_state)
     op = np.random.permutation(np.arange(len(x))) % k
     return(op)
 
 
-def CVdata(df, ic_x=[], ic_y=[], ir=None, k=10, f_norm_y=lambda x: x, seed=0, **kwargs):
+def CVdata(df, ic_x=[], ic_y=[], ir=None, k=10, f_norm_y=lambda x: x, random_state=0, **kwargs):
     '''
     Create a dict of cross-validation dataset for models
     
     Parameters
     ----------
-    df : DataFrame, data to clean
-    ic_x : list, column names used as X
-    ic_y : list, column names used as Y
-    ir : list, index of sub-sample
-    k : int, number of cross-validation folds
+    df : DataFrame
+        data to clean
+    ic_x : list
+        column names used as X
+    ic_y : list
+        column names used as Y
+    ir : list
+        index of sub-sample
+    k : int
+        number of cross-validation folds
     
     Returns
     -------
@@ -486,7 +590,7 @@ def CVdata(df, ic_x=[], ic_y=[], ir=None, k=10, f_norm_y=lambda x: x, seed=0, **
         ir = df.index
     op = {"X": CLdata(df.loc[ir].reindex(columns=ic_x, fill_value=0), **kwargs), 
           "Y": f_norm_y(df.loc[ir, ic_y]),
-          "irts": Kfolds(x=ir, k=k, seed=seed)}
+          "irts": Kfolds(x=ir, k=k, random_state=random_state)}
     return(op)
 
 
@@ -496,19 +600,29 @@ def CVset(X, Y, irts, ig=0, ictL=None, **kwargs):
     
     Parameters
     ----------
-    X : DataFrame, indepedent variables
-    Y : DataFrame, dependent variable(s)
-    irts : list-like, cross-validation indices
-    ig : int, fold to use as validation index, and others as training index
-    ictL : DataFrame, X columns bool indcators for each set in CV
+    X : DataFrame
+        indepedent variables
+    Y : DataFrame
+        dependent variable(s)
+    irts : list-like
+        cross-validation indices
+    ig : int
+        fold to use as validation index, and others as training index
+    ictL : DataFrame
+        X columns bool indcators for each set in CV
     
     Returns
     -------
-    op : dict, including following four keys:
-        xt : DataFrame, training X set
-        xv : DataFrame, validation X set
-        yt : DataFrame, training Y set
-        yv : DataFrame, validation Y set
+    op : dict
+        including following four keys:
+        xt : DataFrame
+            training X set
+        xv : DataFrame
+            validation X set
+        yt : DataFrame
+            training Y set
+        yv : DataFrame
+            validation Y set
     '''
     irv = irts == ig
     op = {"yt": Y.loc[~irv], "yv": Y.loc[irv]}
@@ -526,18 +640,27 @@ def CVset_df(X, Y, irts, ig=None, **kwargs):
     
     Parameters
     ----------
-    X : DataFrame, indepedent variables
-    Y : DataFrame, dependent variable(s)
-    irts : list-like, cross-validation indices
-    ig : int, fold to use as validation index, and others as training index. if None, use all folds
+    X : DataFrame
+        indepedent variables
+    Y : DataFrame
+        dependent variable(s)
+    irts : list-like
+        cross-validation indices
+    ig : int
+        fold to use as validation index, and others as training index. if None, use all folds
     
     Returns
     -------
-    op : DataFrame, columns including following four keys:
-        xt : DataFrame, training X set
-        xv : DataFrame, validation X set
-        yt : DataFrame, training Y set
-        yv : DataFrame, validation Y set
+    op : DataFrame
+        columns including following four keys:
+        xt : DataFrame
+            training X set
+        xv : DataFrame
+            validation X set
+        yt : DataFrame
+            training Y set
+        yv : DataFrame
+            validation Y set
     '''
     if ig is None:
         return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=i, **kwargs) for i in np.unique(irts)]))
@@ -551,19 +674,27 @@ def CVply(f, irts, parcv={}, f_con=list, argcon={}, **kwargs):
     
     Parameters
     ----------
-    f : function, to apply cross-validation arguments
-    irts : Series, cross-validation group index
-    parcv : dict, keys -- argument names of f to iterate, values -- argument names of kwargs to iterate
-    f_con : function, to concat iterated outputs of f
-    argcon : dict, arguments of f_con
-    **kwargs : arguments of f
+    f : function
+        to apply cross-validation arguments
+    irts : Series
+        cross-validation group index
+    parcv : dict
+        keys: argument names of f to iterate
+        values: argument names of kwargs to iterate
+    f_con : function
+        to concat iterated outputs of f
+    argcon : dict
+        arguments of f_con
+    **kwargs
+        arguments of f
     
     Returns
     -------
-    op : list, iterated outputs of f
+    op : list
+        iterated outputs of f
     '''
     parcv = dict([[x, kwargs.pop(parcv[x])] for x in parcv.keys()])
-    op = f_con(map(lambda i: f(seed=i, **CVset(ig=i, irts=irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
+    op = f_con(map(lambda i: f(random_state=i, **CVset(ig=i, irts=irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
     return(op)
 
 
@@ -573,12 +704,15 @@ def CVweight(wL, family="normal", **kwargs):
     
     Parameters
     ----------
-    wL : DataFrame, variable weights of the cross-validation models
-    family : str, distribution types of variable weights
+    wL : DataFrame
+        variable weights of the cross-validation models
+    family : str
+        distribution types of variable weights
     
     Returns
     -------
-    op : DataFrame, the columns are Mean, Std, P-value, LowerCI and UpperCI of variable weights
+    op : DataFrame
+        the columns are Mean, Std, P-value, LowerCI and UpperCI of variable weights
     '''
     if(family == "normal"):
         op = pd.concat([wL.mean(axis=1), wL.std(axis=1)], axis=1, keys=["Mean", "Std"])
@@ -603,17 +737,25 @@ def MCVtest(df, ictypeL, mdpar, **kwargs):
     
     Parameters
     ----------
-    df : DataFrame, data to clean and build model
-    ictypeL : list, of types of columns for converting data
-    mdpar : dict, model parameter dictionary, should include at least the following keys:
-        f_model : function, model to train
-        par_model : dict, arguments to train f_model
-        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    **kwargs : arguments of function CVdata
+    df : DataFrame
+        data to clean and build model
+    ictypeL : list
+        of types of columns for converting data
+    mdpar : dict
+        model parameter dictionary, should include at least the following keys:
+        f_model : function
+            model to train
+        par_model : dict
+            arguments to train f_model
+        f_loss (optional) : function
+            use to calculate loss, if not included, use the default option of function Loss
+    **kwargs
+        arguments of function CVdata
     
     Returns
     -------
-    op : list, of model dictionaries
+    op : list
+        of model dictionaries
     '''
     op = [CVmodel({**CVdata(df, i, **kwargs), **mdpar}) for i in ictypeL]
     return(op)
@@ -625,19 +767,29 @@ def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
     
     Parameters
     ----------
-    mdL : list, of CV models
-    X : DataFrame, covariates to adjust as offset
-    Y : DataFrame, dependent variable(s)
-    irts : Series, cross-validation indices
-    mdpar : dict, model parameter dictionary for offset, should include at least the following keys:
-        f_model : function, model to train
-        par_model : dict, arguments to train f_model
-        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    f_loss : function, use to calculate loss, if not included, use the default option of function Loss
+    mdL : list
+        of CV models
+    X : DataFrame
+        covariates to adjust as offset
+    Y : DataFrame
+        dependent variable(s)
+    irts : Series
+        cross-validation indices
+    mdpar : dict
+        model parameter dictionary for offset, should include at least the following keys:
+        f_model : function
+            model to train
+        par_model : dict
+            arguments to train f_model
+        f_loss (optional) : function
+            use to calculate loss, if not included, use the default option of function Loss
+    f_loss : function
+        use to calculate loss, if not included, use the default option of function Loss
     
     Returns
     -------
-    op : DataFrame, mean loss of CV models
+    op : DataFrame
+        mean loss of CV models
     '''
     op = []
     model_offset = MDtrain(xt = X, yt = Y, xv = X, yv = Y, **mdpar)
@@ -652,30 +804,6 @@ def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
     return(op)
 
 
-def MMCVmodel(mdsetL, mdparL):
-    '''
-    Parameters
-    ----------
-    mdsetL : list, each element is a model dictionary of datasets, including three keys:
-        X : DataFrame, indepedent variables
-        Y : DataFrame, dependent variable(s)
-        irts : Series, cross-validation group index
-    mdparL : list, each element is a model dictionary of functions and parameters, including following keys:
-        namemd : str, custom name of model
-        f_model : function, model to train
-        par_model : dict, arguments to train f_model
-        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    
-    Returns
-    -------
-    mdLL : list (datasets) of lists (models), each element is an updated model dictionary, with the following keys added:
-        modelL : list, trained cross-validation models
-        wL : DataFrame, variable weights of the cross-validation models
-        yvpL : list, predicted Ys on validation sets
-        lossL : Series, loss on validation sets
-    '''
-    mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
-    return(mdLL)
 
 
 class LinearClass(BaseEstimator, RegressorMixin):
@@ -730,13 +858,17 @@ class LinearMixedModel(LinearClass):
 
         Parameters
         ----------
-        X_g : DataFrame of shape (n, p), random effects matrix
-        w_g : 1d array of shape (p,), scale of columns. 
-        scale : bool, whether scale columns with mean 0 and std 1
+        X_g : DataFrame
+            of shape (n, p), random effects matrix
+        w_g : 1d array
+            of shape (p,), scale of columns. 
+        scale : bool
+            whether scale columns with mean 0 and std 1
     
         Attributes
         ----------
-        G : 2d array of shape (n, n), kernel of random effects in linear mixed model
+        G : 2d array
+            of shape (n, n), kernel of random effects in linear mixed model
         '''
         if scale:
             X_g = CLscale(X_g) / np.sqrt(X_g.shape[1]) 
@@ -761,8 +893,10 @@ class LinearMixedModel(LinearClass):
 
         Parameters
         ----------
-        X : DataFrame of shape (n, p), covariate matrix
-        Y : DataFrame of shape (n, 1), response variable
+        X : DataFrame
+            of shape (n, p), covariate matrix
+        Y : DataFrame
+            of shape (n, 1), response variable
     
         Attributes
         ----------
@@ -806,16 +940,23 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
     
     Parameters
     ----------
-    x : list-like, t-statistics to adjust
-    distcdf : function, cumulative distribution function of prior of non-zero t-statistics
-    bounds : list, each element is tuple (min, max) bounds for parameters
-    tol : float, convergence threshold
-    plot : bool, whether plot estimation result
-    **kwargs : arguments of function opt.differential_evolution
+    x : list-like
+        t-statistics to adjust
+    distcdf : function
+        cumulative distribution function of prior of non-zero t-statistics
+    bounds : list
+        each element is tuple (min, max) bounds for parameters
+    tol : float
+        convergence threshold
+    plot : bool
+        whether plot estimation result
+    **kwargs
+        arguments of function opt.differential_evolution
 
     Returns
     -------
-    xadj : array, adjusted x
+    xadj : array
+        adjusted x
     '''
     def __init__(self, width=8, num=200):
         self.xbins = np.linspace(-2*width, 2*width, 2*num)
@@ -877,7 +1018,7 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
 
 
 ## deprecated
-def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par_model={}, par_fit={'verbose': False}, **kwargs):
+def MLmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=lm.LogisticRegression, par_model={}, par_fit={'verbose': False}, **kwargs):
     '''
     Train a model of scikit-learn form
     
@@ -887,7 +1028,7 @@ def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par
     xv : DataFrame, validation X set
     yt : DataFrame, training Y set
     yv : DataFrame, validation Y set
-    seed : int, random seed
+    random_state : int, the seed used by the random number generator
     f_model : function, model to train
     par_model : dict, arguments to train f_model
     
@@ -895,13 +1036,12 @@ def MLmodel(xt, yt, xv=None, yv=None, seed=0, f_model=lm.LogisticRegression, par
     -------
     model : trained model
     '''
-    par = {"random_state": seed, "n_estimators": max(100, xt.shape[1]), 'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced',
-           "seed": seed, "colsample_bylevel": 1/(1+np.log(xt.shape[1]))}
+    par = {"random_state": random_state, "n_estimators": max(100, xt.shape[1]), 'learning_rate': 0.05, 'n_jobs': -1, "class_weight": 'balanced',
+           "random_state": random_state, "colsample_bylevel": 1/(1+np.log(xt.shape[1]))}
     par.update(par_model)
     model = f_model(**validpar(f_model, par))
     model.fit(xt, yt.iloc[:,0], **validpar(model.fit, {"eval_set": [(xv, yv.iloc[:,0])], 'verbose': False, **par_fit}))
     return(model)
-
 def MDtrain(f_model, **kwargs):
     '''
     Call a proper model to train according to f_model
@@ -966,7 +1106,7 @@ def MDSingleReg(X, Y, X_offset = [], f_model = sm.OLS, par_model = {}, fix_offse
         return([model.params[-1], model.bse[-1], model.tvalues[-1], model.pvalues[-1]])
     op = pd.DataFrame(list(map(fit, X.iteritems())), index=X.columns, columns=["beta", "std", "t", "p-value"])
     return(op)
-def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], rank=True, pct=1, **kwargs):
+def MLsinglereg(xt, yt, xv=None, yv=None, random_state=0, par_model={}, ic_offset=[], rank=True, pct=1, **kwargs):
     '''
     Train a model of statsmodel form
     
@@ -976,7 +1116,7 @@ def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], ra
     xv : DataFrame, validation X set
     yt : DataFrame, training Y set
     yv : DataFrame, validation Y set
-    seed : int, random seed
+    random_state : int, the seed used by the random number generator
     f_model : function, model to train
     par_model : dict, arguments to train f_model
     ic_offset : str, offset column name of X of which the beta is fixed at 1
@@ -1003,3 +1143,27 @@ def MLsinglereg(xt, yt, xv=None, yv=None, seed=0, par_model={}, ic_offset=[], ra
         daw["p-value"] = daw["p-value"].rank(pct = True)
     model.coef_ = (daw["beta"].values*(daw["p-value"].values <= pct))[np.newaxis, :]
     return(model)
+def MMCVmodel(mdsetL, mdparL):
+    '''
+    Parameters
+    ----------
+    mdsetL : list, each element is a model dictionary of datasets, including three keys:
+        X : DataFrame, indepedent variables
+        Y : DataFrame, dependent variable(s)
+        irts : Series, cross-validation group index
+    mdparL : list, each element is a model dictionary of functions and parameters, including following keys:
+        namemd : str, custom name of model
+        f_model : function, model to train
+        par_model : dict, arguments to train f_model
+        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
+    
+    Returns
+    -------
+    mdLL : list (datasets) of lists (models), each element is an updated model dictionary, with the following keys added:
+        modelL : list, trained cross-validation models
+        wL : DataFrame, variable weights of the cross-validation models
+        yvpL : list, predicted Ys on validation sets
+        lossL : Series, loss on validation sets
+    '''
+    mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
+    return(mdLL)
