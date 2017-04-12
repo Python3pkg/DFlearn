@@ -38,7 +38,7 @@ def validpar(func, x):
     return(op)
 
 
-def strnum(x, func=max):
+def strnum(x, f_reduce=max):
     '''
     Convert string to number, only keep numerical part (0-9 or .), otherwise return np.nan.
     
@@ -46,7 +46,7 @@ def strnum(x, func=max):
     ----------
     x : string
         To convert to numbers.
-	func : function
+	f_reduce : function
 		Function to reduce multiple numbers.
     
     Returns
@@ -56,7 +56,7 @@ def strnum(x, func=max):
     if isinstance(x, str):
         numL = re.findall(r'\d[\.\d]+', x)
         if numL:
-            return(func([float(i) for i in numL]))
+            return(f_reduce([float(i) for i in numL]))
         else:
             return(np.nan)
     else:
@@ -126,7 +126,24 @@ def apply_df(df, func, axis=0, n_jobs=1, **kwargs):
         pool.close()
     return(S)
 
-
+	
+def cross_join(left, right, **kwargs):
+    '''
+    Cross join of two DataFrames along column, for combination of dataset and models.
+    
+    Parameters
+    ----------
+    left : DataFrame
+    right : DataFrame
+    
+    Returns
+    -------
+    DataFrame
+        
+    '''
+    return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
+	
+	
 def collinearvif(df):
     '''
     Compute variance inflation factor (VIF) of a DataFrame.
@@ -472,6 +489,7 @@ def roc(yv, yp, plot=False, **kwargs):
 
 ## Model Analysis
 
+
 def MDweight_analysis(model, xt, **kwargs):
     w = MDweight(model, xt, **kwargs)
     if 'sklearn.ensemble' in type(model).__module__:
@@ -668,33 +686,32 @@ def CVset_df(X, Y, irts, ig=None, **kwargs):
         return(pd.DataFrame.from_dict([CVset(X=X, Y=Y, irts=irts, ig=ig, **kwargs)]))
 
     
-def CVply(f, irts, parcv={}, f_con=list, argcon={}, **kwargs):
+def CVply(func, irts, parcv={}, f_con=list, argcon={}, **kwargs):
     '''
     Apply function on cross-validation data sets
     
     Parameters
     ----------
-    f : function
+    func : function
         to apply cross-validation arguments
     irts : Series
         cross-validation group index
     parcv : dict
-        keys: argument names of f to iterate
-        values: argument names of kwargs to iterate
+        - keys: argument names of the function to iterate
+        - values: argument names of kwargs to iterate
     f_con : function
-        to concat iterated outputs of f
+        to concat iterated outputs of the function
     argcon : dict
         arguments of f_con
-    **kwargs
-        arguments of f
+    Additional keyword arguments will be passed as keywords to the function.
     
     Returns
     -------
     op : list
-        iterated outputs of f
+        iterated outputs of the function
     '''
     parcv = dict([[x, kwargs.pop(parcv[x])] for x in parcv.keys()])
-    op = f_con(map(lambda i: f(random_state=i, **CVset(ig=i, irts=irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
+    op = f_con(map(lambda i: func(random_state=i, **CVset(ig=i, irts=irts, **kwargs), **dict([[x, parcv[x][i]] for x in parcv.keys()]), **kwargs), np.unique(irts)), **argcon)
     return(op)
 
 
@@ -724,40 +741,6 @@ def CVweight(wL, family="normal", **kwargs):
         op = pd.concat([op/op.mean(), sd], axis=1, keys=["Mean", "Std"])
         op["P-value"] = st.norm.cdf(-(op["Mean"] - 1)/op["Std"])
     op = op.assign(LowerCI=op["Mean"]-1.96*sd, UpperCI=op["Mean"]+1.96*sd)
-    return(op)
-
-
-def cross_join(left, right, **kwargs):
-    return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
-
-
-def MCVtest(df, ictypeL, mdpar, **kwargs):
-    '''
-    Using different sets of variables to build cross-validation models on the same data
-    
-    Parameters
-    ----------
-    df : DataFrame
-        data to clean and build model
-    ictypeL : list
-        of types of columns for converting data
-    mdpar : dict
-        model parameter dictionary, should include at least the following keys:
-        f_model : function
-            model to train
-        par_model : dict
-            arguments to train f_model
-        f_loss (optional) : function
-            use to calculate loss, if not included, use the default option of function Loss
-    **kwargs
-        arguments of function CVdata
-    
-    Returns
-    -------
-    op : list
-        of model dictionaries
-    '''
-    op = [CVmodel({**CVdata(df, i, **kwargs), **mdpar}) for i in ictypeL]
     return(op)
 
 
@@ -802,8 +785,6 @@ def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
         print(op[-1])
     op = pd.DataFrame(op, columns=["loss", "loss with offset", "adjusted coef"])
     return(op)
-
-
 
 
 class LinearClass(BaseEstimator, RegressorMixin):
@@ -1143,27 +1124,3 @@ def MLsinglereg(xt, yt, xv=None, yv=None, random_state=0, par_model={}, ic_offse
         daw["p-value"] = daw["p-value"].rank(pct = True)
     model.coef_ = (daw["beta"].values*(daw["p-value"].values <= pct))[np.newaxis, :]
     return(model)
-def MMCVmodel(mdsetL, mdparL):
-    '''
-    Parameters
-    ----------
-    mdsetL : list, each element is a model dictionary of datasets, including three keys:
-        X : DataFrame, indepedent variables
-        Y : DataFrame, dependent variable(s)
-        irts : Series, cross-validation group index
-    mdparL : list, each element is a model dictionary of functions and parameters, including following keys:
-        namemd : str, custom name of model
-        f_model : function, model to train
-        par_model : dict, arguments to train f_model
-        f_loss (optional) : function, use to calculate loss, if not included, use the default option of function Loss
-    
-    Returns
-    -------
-    mdLL : list (datasets) of lists (models), each element is an updated model dictionary, with the following keys added:
-        modelL : list, trained cross-validation models
-        wL : DataFrame, variable weights of the cross-validation models
-        yvpL : list, predicted Ys on validation sets
-        lossL : Series, loss on validation sets
-    '''
-    mdLL = [[CVmodel({**i, **j}) for j in mdparL] for i in mdsetL]
-    return(mdLL)
