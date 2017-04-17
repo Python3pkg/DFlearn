@@ -157,7 +157,7 @@ def collinearvif(df):
     op : Series
         VIF values of each column.
 	'''
-    op = pd.Series(np.diag(np.linalg.inv(df.corr())), index=df.columns, name = "CollinearVIF")
+    op = pd.Series(np.diag(np.linalg.inv(df.corr())), df.columns, name="CollinearVIF")
     return(op)
 
 
@@ -193,9 +193,7 @@ def summary(df, n=5, pct=[0.1, 0.5, 0.9]):
 ## Clean Data
 
 def CLtimenum(s):
-    '''
-    Convert datetime variable to numeric variable.
-    '''
+    '''Convert datetime variable to numeric variable.'''
     op = pd.DatetimeIndex(s)
     op = pd.get_dummies(pd.DataFrame(dict(zip(*[["{}__{}".format(s.name, i) for i in ["Month", "Year"]], [op.month, op.year]])), index=s.index).astype("O"))
     return(op)
@@ -282,45 +280,6 @@ def CLdata(df, sp=0, cor=1, f_norm=CLscale, formula=None, **kwargs):
     if(formula):
         df_clean = ps.dmatrix(("0"+"+{}"*df_clean.shape[1]+formula).format(*df_clean.columns), data=df_clean, return_type="dataframe")
     return(df_clean)
-
-
-## Machine Learning Models
-
-
-def MLstatsmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
-    '''
-    Train a model of statsmodel form
-    
-    Parameters
-    ----------
-    xt : DataFrame
-        training X set.
-    xv : DataFrame
-        validation X set.
-    yt : DataFrame
-        training Y set.
-    yv : DataFrame
-        validation Y set.
-    random_state : int
-        the seed used by the random number generator.
-    f_model : function
-        model to train.
-    par_model : dict
-        arguments to train f_model.
-    ic_offset : str
-        offset column name of X of which the beta is fixed at 1.
-    
-    Returns
-    -------
-    model : trained model
-    '''
-    par = {}
-    par.update(par_model)
-    if len(ic_offset):
-        par.update({"offset": xt.loc[:,ic_offset]})
-    model = f_model(yt, xt.drop(ic_offset, axis=1).assign(_Int_=1).rename(columns={"_Int_": "(Intercept)"}), **par).fit()
-    return(model)
-
 
 ## Machine Learning Procedures
 
@@ -744,49 +703,6 @@ def CVweight(wL, family="normal", **kwargs):
     return(op)
 
 
-def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
-    '''
-    Create a training-validation set from X, Y and cross-validation indices
-    
-    Parameters
-    ----------
-    mdL : list
-        of CV models
-    X : DataFrame
-        covariates to adjust as offset
-    Y : DataFrame
-        dependent variable(s)
-    irts : Series
-        cross-validation indices
-    mdpar : dict
-        model parameter dictionary for offset, should include at least the following keys:
-        f_model : function
-            model to train
-        par_model : dict
-            arguments to train f_model
-        f_loss (optional) : function
-            use to calculate loss, if not included, use the default option of function Loss
-    f_loss : function
-        use to calculate loss, if not included, use the default option of function Loss
-    
-    Returns
-    -------
-    op : DataFrame
-        mean loss of CV models
-    '''
-    op = []
-    model_offset = MDtrain(xt = X, yt = Y, xv = X, yv = Y, **mdpar)
-    X_offset = MDpred(model_offset, X, logit = True).rename(columns={0: "covar"})
-    op.append(np.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0), 0))
-    print(op[-1])
-    for md in mdL:
-        md_h1 = CVmodel({"X": md["yvpL"].join(X_offset), "Y": Y, "irts": irts, **mdpar, "ic_offset": "covar"})
-        op.append([md["lossL"].mean(), md_h1["lossL"].mean(), md_h1["wL"].loc[0].groupby(level = 1).mean()["coef"]])
-        print(op[-1])
-    op = pd.DataFrame(op, columns=["loss", "loss with offset", "adjusted coef"])
-    return(op)
-
-
 class LinearClass(BaseEstimator, RegressorMixin):
     def __init__(self):
         pass
@@ -999,6 +915,39 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
 
 
 ## deprecated
+def MLstatsmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
+    '''
+    Train a model of statsmodel form
+    
+    Parameters
+    ----------
+    xt : DataFrame
+        training X set.
+    xv : DataFrame
+        validation X set.
+    yt : DataFrame
+        training Y set.
+    yv : DataFrame
+        validation Y set.
+    random_state : int
+        the seed used by the random number generator.
+    f_model : function
+        model to train.
+    par_model : dict
+        arguments to train f_model.
+    ic_offset : str
+        offset column name of X of which the beta is fixed at 1.
+    
+    Returns
+    -------
+    model : trained model
+    '''
+    par = {}
+    par.update(par_model)
+    if len(ic_offset):
+        par.update({"offset": xt.loc[:,ic_offset]})
+    model = f_model(yt, xt.drop(ic_offset, axis=1).assign(_Int_=1).rename(columns={"_Int_": "(Intercept)"}), **par).fit()
+    return(model)
 def MLmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=lm.LogisticRegression, par_model={}, par_fit={'verbose': False}, **kwargs):
     '''
     Train a model of scikit-learn form
@@ -1124,3 +1073,44 @@ def MLsinglereg(xt, yt, xv=None, yv=None, random_state=0, par_model={}, ic_offse
         daw["p-value"] = daw["p-value"].rank(pct = True)
     model.coef_ = (daw["beta"].values*(daw["p-value"].values <= pct))[np.newaxis, :]
     return(model)
+def MCVoffsetmodel(mdL, X, Y, irts, mdpar, f_loss=met.roc_auc_score):
+    '''
+    Create a training-validation set from X, Y and cross-validation indices
+    
+    Parameters
+    ----------
+    mdL : list
+        of CV models
+    X : DataFrame
+        covariates to adjust as offset
+    Y : DataFrame
+        dependent variable(s)
+    irts : Series
+        cross-validation indices
+    mdpar : dict
+        model parameter dictionary for offset, should include at least the following keys:
+        f_model : function
+            model to train
+        par_model : dict
+            arguments to train f_model
+        f_loss (optional) : function
+            use to calculate loss, if not included, use the default option of function Loss
+    f_loss : function
+        use to calculate loss, if not included, use the default option of function Loss
+    
+    Returns
+    -------
+    op : DataFrame
+        mean loss of CV models
+    '''
+    op = []
+    model_offset = MDtrain(xt = X, yt = Y, xv = X, yv = Y, **mdpar)
+    X_offset = MDpred(model_offset, X, logit = True).rename(columns={0: "covar"})
+    op.append(np.append(np.mean([[Loss(Y.loc[irts==i], j, f_loss) for j in [np.repeat(Y.loc[irts!=i].mean(), sum(irts==i)), X_offset.loc[irts==i]]] for i in np.unique(irts)], axis = 0), 0))
+    print(op[-1])
+    for md in mdL:
+        md_h1 = CVmodel({"X": md["yvpL"].join(X_offset), "Y": Y, "irts": irts, **mdpar, "ic_offset": "covar"})
+        op.append([md["lossL"].mean(), md_h1["lossL"].mean(), md_h1["wL"].loc[0].groupby(level = 1).mean()["coef"]])
+        print(op[-1])
+    op = pd.DataFrame(op, columns=["loss", "loss with offset", "adjusted coef"])
+    return(op)
