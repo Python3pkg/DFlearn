@@ -46,8 +46,8 @@ def strnum(x, f_reduce=max):
     ----------
     x : string
         To convert to numbers.
-	f_reduce : function
-		Function to reduce multiple numbers.
+    f_reduce : function
+        Function to reduce multiple numbers.
     
     Returns
     -------
@@ -96,14 +96,14 @@ def apply_df(df, func, axis=0, n_jobs=1, **kwargs):
     
     Parameters
     ----------
-	df : DataFrame
-		To apply function.
+    df : DataFrame
+        To apply function.
     func : function
         Function to apply to each column/row.
     axis :  {0, 1}, default 0
-	    - 0 or 'index': apply function to each column.
-	    - 1 or 'columns': apply function to each row.
-	n_jobs : int, optional (default=1)
+        - 0 or 'index': apply function to each column.
+        - 1 or 'columns': apply function to each row.
+    n_jobs : int, optional (default=1)
         The number of jobs to run in parallel.
     Additional keyword arguments will be passed as keywords to the function.
     
@@ -126,7 +126,7 @@ def apply_df(df, func, axis=0, n_jobs=1, **kwargs):
         pool.close()
     return(S)
 
-	
+    
 def cross_join(left, right, **kwargs):
     '''
     Cross join of two DataFrames along column, for combination of dataset and models.
@@ -142,21 +142,21 @@ def cross_join(left, right, **kwargs):
         
     '''
     return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
-	
-	
+    
+    
 def collinearvif(df):
     '''
     Compute variance inflation factor (VIF) of a DataFrame.
     
     Parameters
     ----------
-	df : DataFrame
-	
+    df : DataFrame
+    
     Returns
     -------
     op : Series
         VIF values of each column.
-	'''
+    '''
     op = pd.Series(np.diag(np.linalg.inv(df.corr())), df.columns, name="CollinearVIF")
     return(op)
 
@@ -168,7 +168,7 @@ def summary(df, n=5, pct=[0.1, 0.5, 0.9]):
     Parameters
     ----------
     df : DataFrame
-	    To summary.
+        To summary.
     n : int
         The number of foremost frequent categories of frequency table.
     pct : list
@@ -183,10 +183,13 @@ def summary(df, n=5, pct=[0.1, 0.5, 0.9]):
     def freq(s):
         op = pd.value_counts(s)
         op = pd.concat([pd.Series(op.index[:n]).rename(lambda x: "FreqCat{}".format(x+1)), 
-		                pd.Series(op.values[:n]).rename(lambda x: "FreqVal{}".format(x+1)).T, 
-						pd.Series(op.iloc[n:].sum(), index=["Freq_Others"])])
+                        pd.Series(op.values[:n]).rename(lambda x: "FreqVal{}".format(x+1)).T, 
+                        pd.Series(op.iloc[n:].sum(), index=["Freq_Others"])])
         return(op)
-    op = pd.concat([df.dtypes.rename("Type"), df.notnull().sum().rename("N"), df.describe(pct).iloc[1:].T, df.apply(freq).T], axis=1).loc[df.columns]
+    op = pd.concat([df.dtypes.rename("Type"), 
+                    df.notnull().sum().rename("N"), 
+                    df.describe(pct).iloc[1:].T, 
+                    df.apply(freq).T], axis=1).loc[df.columns]
     return(op)
 
 
@@ -202,10 +205,10 @@ def CLtimenum(s):
 def CLnormal(df):
     '''
     Normalize the distribution of numeric DataFrame to standard normal distribution by rank.
-	
+    
     See also
     --------
-	CLscale
+    CLscale
     '''
     op = pd.DataFrame(st.norm.ppf((df.rank(pct = True) - 0.5/df.shape[0]).fillna(0.5)), index=df.index, columns=df.columns)
     return(op)
@@ -214,10 +217,10 @@ def CLnormal(df):
 def CLscale(df):
     '''
     Standardize the distribution of numeric DataFrame to mean 0 and standard deviation 1.
-	
-	See also
+    
+    See also
     --------
-	CLnormal
+    CLnormal
     '''
     op = ((df - df.mean())/df.std()).fillna(0)
     return(op)
@@ -254,7 +257,7 @@ def CLdata(df, sp=0, cor=1, f_norm=CLscale, formula=None, **kwargs):
         between [0, 1), threshold of ratio of unique and missing values to delete variables.
     cor : float
         between (0, 1], threshold of absolute correlation to remove later collinear variables.
-	f_norm : function
+    f_norm : function
         use to standardize numeric variables.
     formula : str
         add transformed or interaction terms of variables.
@@ -534,7 +537,7 @@ def Kfolds(x, k=10, random_state=1):
     -------
     op : array
     '''
-    np.random.random_state(random_state)
+    np.random.seed(random_state)
     op = np.random.permutation(np.arange(len(x))) % k
     return(op)
 
@@ -740,7 +743,7 @@ class LinearSingleModel(LinearClass):
         # self.W0 = self.w0 + XXinv_c * XX_AinvB * (XX_AinvB.T @ XY_a)[:,0] + XXinv_B * XY_b.T
         self.w = (XY_a.T @ XXinv_B + XXinv_c * XY_b.T)[0]
         self.w_se = np.sqrt(XXinv_c * self.sigma2)
-        self.dof = len(X) - len(w0) - 1
+        self.dof = len(X) - len(self.w0) - 1
         return(self)
 
     
