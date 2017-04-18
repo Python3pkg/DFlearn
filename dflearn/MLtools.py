@@ -14,9 +14,6 @@ import sklearn.metrics as met
 import sklearn.linear_model as lm
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
 
-__version__ = "0.1.8"
-__name__ = "DFlearn"
-
 
 def validpar(func, x):
     '''
@@ -99,37 +96,32 @@ def apply_df(df, func, axis=0, n_jobs=1, **kwargs):
     df : DataFrame
         To apply function.
     func : function
-        Function to apply to each column/row.
+        Function with input (index, Series) to apply to each column/row.
     axis :  {0, 1}, default 0
-        - 0 or 'index': apply function to each column.
-        - 1 or 'columns': apply function to each row.
+        - 0 or 'index': apply function along rows.
+        - 1 or 'columns': apply function along columns.
     n_jobs : int, optional (default=1)
         The number of jobs to run in parallel.
     Additional keyword arguments will be passed as keywords to the function.
     
     Returns
     -------
-    op : list-like
+    S : list-like
         iterated outputs of f.
     '''
     if axis == 0:
-        L = df.iterrows()
-        index = df.index
-    else:
-        L = df.iteritems()
+        pairs = df.iteritems()
         index = df.columns
-    if n_jobs == 1:
-        S = pd.Series(map(func, L), index, **kwargs)
     else:
-        pool = multiprocessing.Pool(n_jobs)
-        S = pd.Series(pool.map(func, L), index, **kwargs)
-        pool.close()
+        pairs = df.iterrows()
+        index = df.index
+    S = pd.Series([func(i_val) for i, i_val in pairs], index, **kwargs)
     return(S)
 
     
-def cross_join(left, right, **kwargs):
+def cross_join(left, right):
     '''
-    Cross join of two DataFrames along column, for combination of dataset and models.
+    Cross outer join of two DataFrames along column.
     
     Parameters
     ----------
@@ -141,7 +133,7 @@ def cross_join(left, right, **kwargs):
     DataFrame
         
     '''
-    return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key", **kwargs).drop("_key", axis=1))
+    return(pd.merge(left.assign(_key=1), right.assign(_key=1), on="_key").drop("_key", axis=1))
     
     
 def collinearvif(df):
@@ -902,9 +894,21 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         self.adjuster_mu = intp.interp1d(self.xtable, self.Emu)
         self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
         if plot:
-            pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], model.Ex/(model.xtable+1e-8), model.Emu/(model.xtable+1e-8)]).T, model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"]).rename_axis("T-stat").plot(ylim=[0, 1], xlim=self.xlim, grid=True, title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma))
-            pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|x)", "Upper"]).add(model.Ex, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)")
-            pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), model.xtable, ["Lower", "E(mu|mu0)", "Upper"]).add(model.Emu, axis=0).plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)")
+            (pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], 
+                                   model.Ex/(model.xtable+1e-8), 
+                                   model.Emu/(model.xtable+1e-8)]).T, 
+                         model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"])
+             .rename_axis("T-stat")
+             .plot(ylim=[0, 1], xlim=self.xlim, grid=True, 
+                   title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma)))
+            (pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), 
+                          model.xtable, ["Lower", "E(mu|x)", "Upper"])
+             .add(model.Ex, axis=0)
+             .plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)"))
+            (pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), 
+                          model.xtable, ["Lower", "E(mu|mu0)", "Upper"])
+             .add(model.Emu, axis=0)
+             .plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)"))
         return(self)
     
     def transform(self, x, plot=True):
@@ -913,7 +917,9 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         xadj = self.adjuster_x(x)
         if plot:
             xadjfreq = self.freq(xadj)
-            pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, index = self.xtable, columns = ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True)
+            (pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, 
+                          self.xtable, ["Count", "PriorPDF", "PostPDF", "Adjusted"])
+             .rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True))
         return(xadj)
 
 

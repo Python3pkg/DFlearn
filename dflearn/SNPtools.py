@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 
-__version__ = "0.01"
-
 
 def read_sas_ptid(filepath, ic_ptid = 0):
     '''

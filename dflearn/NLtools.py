@@ -1,8 +1,6 @@
 import re
 import nltk
 
-__version__ = "0.1.1"
-__name__ = "NLtools"
 
 class word_Normalizer():
     def __init__(self):
