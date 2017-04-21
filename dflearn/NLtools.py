@@ -12,11 +12,12 @@ class word_Normalizer():
             else:
                 return(self.model.lemmatize(self.model.lemmatize(re.sub(r'[^a-z]', '', s.lower())), "v"))
         elif s[0].isdigit():
-            re.sub(",", "", s.lower())
-        elif s[0] == "#" and (len(s) > 1) and s[1].isalpha():
-            self.transform(s[1:])
+            return(re.sub(",", "", s.lower()))
+        elif s[0] == "#" and (len(s) > 1) and (s[1].isalpha() or s[1].isdigit()):
+            return(self.transform(s[1:]))
         else:
             return(s.lower())
+        
         
 class word_Tokenizer():
     def __init__(self):
