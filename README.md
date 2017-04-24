@@ -12,7 +12,7 @@ pip install dflearn
 
 ## Dependencies
 
-- [numPy](http://www.numpy.org): 1.11.0 or higher
+- [numpy](http://www.numpy.org): 1.11.0 or higher
 - [scipy](https://www.scipy.org/): 0.18.0 or higher
 - [pandas](http://pandas.pydata.org/): 0.19.0 or higher
 - [statsmodels](http://www.statsmodels.org/): 0.6.0 or higher

@@ -12,7 +12,7 @@ Install
 Dependencies
 ============
 
--  `numPy <http://www.numpy.org>`__: 1.11.0 or higher
+-  `numpy <http://www.numpy.org>`__: 1.11.0 or higher
 -  `scipy <https://www.scipy.org/>`__: 0.18.0 or higher
 -  `pandas <http://pandas.pydata.org/>`__: 0.19.0 or higher
 -  `statsmodels <http://www.statsmodels.org/>`__: 0.6.0 or higher
