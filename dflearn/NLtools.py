@@ -2,6 +2,11 @@ import re
 import nltk
 
 
+stopwords = ["a", "an", "and", "are", "as", "be", "by", "for", "from", 
+             "has", "he", "in", "is", "it", "its", "of", "on", 
+             "that", "the", "to", "was", "were", "will", "with"]
+
+
 class word_Normalizer():
     def __init__(self):
         self.model = nltk.stem.WordNetLemmatizer()
@@ -36,7 +41,7 @@ class word_Tokenizer():
             return(["_other"])
         return(op)
     
-    
+
 class Integer_Coder():
     def __init__(self):
         self.code_dict = {}
