@@ -13,8 +13,6 @@ class word_Normalizer():
                 return(self.model.lemmatize(self.model.lemmatize(re.sub(r'[^a-z]', '', s.lower())), "v"))
         elif s[0].isdigit():
             return(re.sub(",", "", s.lower()))
-        elif s[0] == "#" and (len(s) > 1) and (s[1].isalpha() or s[1].isdigit()):
-            return(self.transform(s[1:]))
         else:
             return(s.lower())
         
