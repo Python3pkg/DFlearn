@@ -895,19 +895,19 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
         if plot:
             (pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], 
-                                   model.Ex/(model.xtable+1e-8), 
-                                   model.Emu/(model.xtable+1e-8)]).T, 
-                         model.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"])
+                                   self.Ex/(self.xtable+1e-8), 
+                                   self.Emu/(self.xtable+1e-8)]).T, 
+                         self.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"])
              .rename_axis("T-stat")
              .plot(ylim=[0, 1], xlim=self.xlim, grid=True, 
                    title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma)))
-            (pd.DataFrame(np.outer(np.sqrt(model.Vx), [-2, 0, 2]), 
-                          model.xtable, ["Lower", "E(mu|x)", "Upper"])
-             .add(model.Ex, axis=0)
+            (pd.DataFrame(np.outer(np.sqrt(self.Vx), [-2, 0, 2]), 
+                          self.xtable, ["Lower", "E(mu|x)", "Upper"])
+             .add(self.Ex, axis=0)
              .plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given t-value (x)"))
-            (pd.DataFrame(np.outer(np.sqrt(model.Vmu), [-2, 0, 2]), 
-                          model.xtable, ["Lower", "E(mu|mu0)", "Upper"])
-             .add(model.Emu, axis=0)
+            (pd.DataFrame(np.outer(np.sqrt(self.Vmu), [-2, 0, 2]), 
+                          self.xtable, ["Lower", "E(mu|mu0)", "Upper"])
+             .add(self.Emu, axis=0)
              .plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)"))
         return(self)
     
