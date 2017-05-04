@@ -728,14 +728,14 @@ class LinearSingleModel(LinearClass):
         XX_Ainv = np.linalg.inv(XX_A)
         XX_AinvB = XX_Ainv @ XX_B
         self.w0 = XX_Ainv @ XY_a
-        self.sigma2 = ((Y - X0 @ self.w0)**2).mean()
+        self.dof = len(X) - len(self.w0) - 1
+        self.sigma2 = ((Y - X0 @ self.w0)**2).sum()/self.dof
         XXinv_c = 1/(XX_c - (XX_B * XX_AinvB).sum(axis=0))
         XXinv_B = - XXinv_c * XX_AinvB
         # XXinv_Adiag = np.diag(XX_Ainv)[:, np.newaxis] + XXinv_c * (XX_AinvB ** 2)
         # self.W0 = self.w0 + XXinv_c * XX_AinvB * (XX_AinvB.T @ XY_a)[:,0] + XXinv_B * XY_b.T
         self.w = (XY_a.T @ XXinv_B + XXinv_c * XY_b.T)[0]
         self.w_se = np.sqrt(XXinv_c * self.sigma2)
-        self.dof = len(X) - len(self.w0) - 1
         return(self)
 
     
@@ -829,26 +829,6 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
         1. (1-alpha) rates as zero effect, with likelihood Normal(0,1)
         2. alpha rates as non-zero effect mu, with likelihood Normal(mu,1), mu has a given prior distcdf scaled by sigma
         3. alpha and sigma are estimated by maximum a posteriori probability (MAP)
-    
-    Parameters
-    ----------
-    x : list-like
-        t-statistics to adjust
-    distcdf : function
-        cumulative distribution function of prior of non-zero t-statistics
-    bounds : list
-        each element is tuple (min, max) bounds for parameters
-    tol : float
-        convergence threshold
-    plot : bool
-        whether plot estimation result
-    **kwargs
-        arguments of function opt.differential_evolution
-
-    Returns
-    -------
-    xadj : array
-        adjusted x
     '''
     def __init__(self, width=8, num=200):
         self.xbins = np.linspace(-2*width, 2*width, 2*num)
@@ -869,14 +849,32 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
     
     def freq(self, x):
         return(np.bincount(pd.Series(pd.cut(x, self.xbins)).cat.codes.values, minlength=len(self.xbins)-1)/len(x))
-        
-    def fit(self, x, distcdf=st.laplace.cdf, bounds=[(0, 1), (0.1, 10)], tol=1e-7, **kwargs):
+    
+    def loss(self, z):
+        return(-2*self.xfreq@np.log(self.pdf_x(z[0], z[1])))
+    
+    def fit(self, x, distcdf=st.laplace.cdf, bounds=[(0, 1), (0.1, 10)], tol=1e-7, plot=True, **kwargs):
+        """
+        Parameters
+        ----------
+        x : list-like
+            t-statistics to adjust
+        distcdf : function
+            cumulative distribution function of prior of non-zero t-statistics
+        bounds : list
+            each element is tuple (min, max) bounds for parameters
+        tol : float
+            convergence threshold
+        plot : bool
+            whether plot estimation result
+        Additional keyword arguments will be passed as keywords to opt.differential_evolution
+        """
+        self.p = len(x)
         self.distcdf = distcdf
         self.xfreq = self.freq(x)
-        def loss(z):
-            return(-2*self.xfreq@np.log(self.pdf_x(z[0], z[1])))
-        model = opt.differential_evolution(loss, bounds=bounds, tol=tol, **kwargs)
-        self.alpha, self.sigma = model.x
+        self.model_fit = opt.differential_evolution(self.loss, bounds=bounds, tol=tol, **kwargs)
+        self.alpha, self.sigma = self.model_fit.x
+        self.adjuster(self.alpha, self.sigma, plot=plot)
         return(self)
     
     def adjuster(self, alpha, sigma, plot=True):
@@ -913,14 +911,25 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
     
     def transform(self, x, plot=True):
         self.xfreq = self.freq(x)
-        self.adjuster(self.alpha, self.sigma, plot=plot)
-        xadj = self.adjuster_x(x)
+        x_adj = self.adjuster_x(x)
+        w_adj = x_adj/x
+        self.dof = (w_adj.sum()**2)/(w_adj**2).sum()
         if plot:
-            xadjfreq = self.freq(xadj)
-            (pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, xadjfreq]).T, 
-                          self.xtable, ["Count", "PriorPDF", "PostPDF", "Adjusted"])
-             .rename_axis("T-stat").plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True))
-        return(xadj)
+            x_adj_freq = self.freq(x_adj)
+            (pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, x_adj_freq]).T, 
+                          self.xtable, ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat")
+             .plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True, title="df: {}, adjusted df: {:.2f}\nNull Deviance: {:.4f}, Deviance: {:.4f}".format(len(x), self.dof, self.loss([0, 1e-7])-np.log(2*np.pi)-1, self.loss([self.alpha, self.sigma])-np.log(2*np.pi)-1)))
+        return(x_adj)
+    
+    def summary(self, cdf=[0.5, 0.9, 0.95, 0.99, 0.999], mu=None, M=1, plot=False):
+        self.adjuster(self.alpha, self.sigma*np.sqrt(M), plot=plot)
+        if mu is None:
+            mu = np.array([opt.newton(lambda x: self.cdf_mu(x) - (1+i)/2, 0) for i in cdf])
+        dist_var = np.sum(self.xtable**2*np.diff(self.distcdf(self.xbins)))
+        dist_kurt = np.sum(self.xtable**4*np.diff(self.distcdf(self.xbins)))/dist_var**2 - 3
+        out_S = pd.Series([M, self.alpha, self.sigma*np.sqrt(M), dist_var, dist_kurt, self.loss([0, 1e-7])-np.log(2*np.pi)-1, self.loss([self.alpha, self.sigma])-np.log(2*np.pi)-1, self.p, self.dof], ["Sample Adjust (M)", "Effect ratio (alpha)", "Effect scale (sigma)", "Dist variance", "Dist kurtosis", "Null Deviance", "Deviance", "df", "Adjusted df"])
+        out_df = pd.DataFrame({"CDF": 2*self.cdf_mu(mu)-1, "power": self.adjuster_mu(mu)/mu}, mu).rename_axis("effect t size")
+        return(out_S, out_df)
 
 
 ## deprecated
