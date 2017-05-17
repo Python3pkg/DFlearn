@@ -8,8 +8,10 @@ def read_sas_ptid(filepath, ic_ptid = 0):
     
     Parameters
     ----------
-    filepath : str, file path and name
-    ic_ptid : int, column number for FID
+    filepath : str
+        file path and name
+    ic_ptid : int
+        column number for FID
     
     Returns
     -------
@@ -27,7 +29,8 @@ def read_plink(filepath, na = -1):
     
     Parameters
     ----------
-    filepath : str, file path and name
+    filepath : str
+        file path and name
     
     Returns
     -------
@@ -38,13 +41,51 @@ def read_plink(filepath, na = -1):
                    0: 2,  # Homozygous A1
                    3: 0}  # Homozygous A2
     geno_values = np.array([[geno_recode[(i >> j) & 3] for j in range(0, 7, 2)] for i in range(256)], dtype=np.int8)
-    daa1 = pd.read_csv("{}.bim".format(filepath), sep = "\t", header = None)
-    daa2 = pd.read_csv("{}.fam".format(filepath), delim_whitespace = True, header = None)
+    daa_bim = pd.read_csv("{}.bim".format(filepath), delim_whitespace = True, header = None)
+    daa_fam = pd.read_csv("{}.fam".format(filepath), delim_whitespace = True, header = None)
     da0 = np.fromfile("{}.bed".format(filepath), dtype=np.uint8)
-    if(np.all(da0[:3] == [108, 27, 1]) & (da0[3:].shape[0] == (daa1.shape[0]*np.ceil(daa2.shape[0]/4)))):
-        da0 = np.reshape(da0[3:], (daa1.shape[0], int(np.ceil(daa2.shape[0]/4))))
-        op = pd.DataFrame(np.reshape(geno_values[da0], (da0.shape[0], da0.shape[1]*4))[:,:daa2.shape[0]], index = daa1.iloc[:,1].tolist(), columns = pd.MultiIndex.from_arrays(daa2.iloc[:,[0,1]].values.T, names = ["FID", "IID"])).T
+    if(np.all(da0[:3] == [108, 27, 1]) & (da0[3:].shape[0] == (daa_bim.shape[0]*np.ceil(daa_fam.shape[0]/4)))):
+        da0 = np.reshape(da0[3:], (daa_bim.shape[0], int(np.ceil(daa_fam.shape[0]/4))))
+        op = pd.DataFrame(np.reshape(geno_values[da0], (da0.shape[0], da0.shape[1]*4))[:,:daa_fam.shape[0]], index = daa_bim.iloc[:,1].tolist(), columns = pd.MultiIndex.from_arrays(daa_fam.iloc[:, [0, 1]].values.T, names = ["FID", "IID"])).T
     return(op)
+
+
+def write_plink(df, df_bim, filepath, na = -1):
+    '''
+    Write genotypes to binary file.
+    
+    Parameters
+    ----------
+    df : DataFrame
+        the genotypes to write in the BED file
+    '''
+    daa_fam = pd.DataFrame(df.index.values)
+    if daa_fam.shape[1] == 1:
+        daa_fam["IID"] = 1
+    daa_fam["fatherIID"] = 0
+    daa_fam["motherIID"] = 0
+    daa_fam["sex"] = 0
+    daa_fam["pheno"] = 0
+    daa_fam.to_csv("{}.fam".format(filepath), sep=" ", index=False, header=False)
+    df_bim.iloc[:, :6].to_csv("{}.bim".format(filepath), sep = "\t", index=False, header=False)
+    
+    byte_recode = {na:1,  # Unknown genotype
+                   1: 2,  # Heterozygous genotype
+                   2: 0,  # Homozygous A1
+                   0: 3}  # Homozygous A2
+    geno_array = df.values.copy()
+
+    for i, i_val in byte_recode.items():
+        geno_array[df.values==i] = i_val
+
+    geno_array = np.pad(geno_array, [[0, 4 - len(df)%4 - 4*(len(df)%4==0)], [0, 0]], "constant", constant_values=0).T.astype("uint8")
+    geno_byte = geno_array[:, range(0, geno_array.shape[1], 4)].copy()
+    
+    for i in range(1, 4):
+        geno_byte |= geno_array[:, range(i, geno_array.shape[1], 4)] << 2*i
+        
+    with open("{}.bed".format(filepath), "wb") as file:
+        file.write(np.insert(geno_byte.flatten(), 0, [108, 27, 1]))
 
 
 def read_dosage(filepath):
@@ -53,12 +94,15 @@ def read_dosage(filepath):
     
     Parameters
     ----------
-    filepath : str, file path and name
+    filepath : str
+        file path and name
     
     Returns
     -------
-    daa : DataFrame, info file
-    da : DataFrame, dosage file
+    daa : DataFrame
+        info file
+    da : DataFrame
+        dosage file
     '''
     daa = pd.read_csv("{}.info".format(filepath), sep = "\t", index_col = 0)
     da = pd.read_csv("{}.dose".format(filepath), delim_whitespace = True, index_col = 0, header = None, names = ["ptID", "CASE"] + daa.index.tolist()).drop("CASE", axis = 1).drop_duplicates()
@@ -82,12 +126,15 @@ def RiskScore(X, W):
     
     Parameters
     ----------
-    X : DataFrame, data to calculate risk score
-    W : DataFrame, weights of variables
+    X : DataFrame
+        data to calculate risk score
+    W : DataFrame
+        weights of variables
 
     Returns
     -------
-    op : DataFrame, risk score
+    op : DataFrame
+        risk score
     '''
     op = X.fillna(X.mean()).dot(W).add(-2*W.where(W < 0, 0).sum())
     return(op)
@@ -99,13 +146,17 @@ def vcf_to_RFMix(file_vcf, file_map, file_out):
     
     Parameters
     ----------
-    file_vcf : filepath, vcf file of location and subjects of SNPs
-    file_map : filepath, genetic location file of hapmap
-    file_out : filepath, name of output file, with "_alleles.txt" and "_snp_locations.txt" appended
+    file_vcf : str
+        vcf file of location and subjects of SNPs
+    file_map : str
+        genetic location file of hapmap
+    file_out : str
+        name of output file, with "_alleles.txt" and "_snp_locations.txt" appended
 
-    Returns
-    -------
-    file_out + "_alleles.txt" : file, alleles data used for RFMix
+    Notes
+    -----
+    file_out + "_alleles.txt" : file
+        alleles data used for RFMix
     file_out + "_snp_locations.txt" : file, snp locations (centiMorgan) data used for RFMix
     '''
     print("Reading vcf file")
