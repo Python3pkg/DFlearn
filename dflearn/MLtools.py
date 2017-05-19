@@ -715,9 +715,12 @@ class LinearClass(BaseEstimator, RegressorMixin):
 class LinearSingleModel(LinearClass):
     def __init__(self):
         pass
-    def fit(self, X, Y, X_offset):
+    def fit(self, X, Y, X_offset=None):
         self.columns = X.columns
-        X0 = np.hstack([np.ones([Y.shape[0], 1]), X_offset.values])
+        if X_offset is not None:
+            X0 = np.hstack([np.ones([Y.shape[0], 1]), X_offset.values])
+        else:
+            X0 = np.ones([Y.shape[0], 1])
         Y = Y.values
         X = X.values
         XX_A = X0.T @ X0
@@ -822,83 +825,118 @@ class LinearMixedModel(LinearClass):
         return(self.w.values[0]+X.dot(self.w.values[1:]))
 
     
-class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
+class LDBayesCpiTstat(BaseEstimator, TransformerMixin):
     '''
-    Adjust t-statistics of a large number of independent tests with Bayesian inference.
-    Prior assumption: 
-        1. (1-alpha) rates as zero effect, with likelihood Normal(0,1)
-        2. alpha rates as non-zero effect mu, with likelihood Normal(mu,1), mu has a given prior distcdf scaled by sigma
-        3. alpha and sigma are estimated by maximum a posteriori probability (MAP)
+    Bayes C-pi adjustment of single-association t-statistics with LD score and heritability.
     '''
-    def __init__(self, width=8, num=200):
-        self.xbins = np.linspace(-2*width, 2*width, 2*num)
-        self.xtable = (self.xbins[1:] + self.xbins[:-1])/2
-        self.G = np.exp(-np.subtract.outer(self.xtable, self.xtable)**2/2)/np.sqrt(2*np.pi)
-        self.g0 = np.exp(-self.xtable**2/2)/np.sqrt(2*np.pi)
-        self.delta = 2*width/(num-1)
-        self.xlim = [-width, width]
+    def __init__(self, width=8, num=400):
+        self.xbins = np.linspace(-2 * width, 2 * width, 2 * num)
+        self.xtable = (self.xbins[1:] + self.xbins[:-1]) / 2
+        self.G = np.exp(- np.subtract.outer(self.xtable, self.xtable) ** 2 / 2)/np.sqrt(2 * np.pi)
+        self.g0 = np.exp(- self.xtable ** 2 / 2)/np.sqrt(2 * np.pi)
+        self.delta = 2 * width / (num - 1)
+        self.xlim = [- width, width]
 
     def diff_d(self, sigma):
         return(np.diff(self.distcdf(self.xbins/sigma)))
         
-    def pdf_x(self, alpha, sigma):
-        return((1-alpha)*self.g0 + alpha*self.G@self.diff_d(sigma))
+    def pdf_x(self, pi, sigma):
+        return((1 - pi) * self.g0 + pi * self.G @ self.diff_d(sigma))
     
-    def diff_mu(self, alpha, sigma):
-        return((1-alpha)*np.diff(st.uniform.cdf(self.xbins*100)) + alpha*self.diff_d(sigma))
+    def diff_mu(self, pi, sigma):
+        return((1 - pi) * np.diff(st.uniform.cdf(self.xbins * 100)) + pi * self.diff_d(sigma))
     
-    def freq(self, x):
-        return(np.bincount(pd.Series(pd.cut(x, self.xbins)).cat.codes.values, minlength=len(self.xbins)-1)/len(x))
+    def cut_bins(self, x, x_bins):
+        return(pd.Series(pd.cut(x, x_bins, right=False)).cat.codes.values)
     
+    def count(self, x):
+        return(np.bincount(self.cut_bins(x, self.xbins), minlength=len(self.xbins) - 1))
+        
     def loss(self, z):
-        return(-2*self.xfreq@np.log(self.pdf_x(z[0], z[1])))
+        xpdf_table = np.vstack([self.pdf_x(z[0], z[1] * c) for c in self.c_table])
+        return(-2 * (self.x_count * np.log(xpdf_table)).sum())
     
-    def fit(self, x, distcdf=st.laplace.cdf, bounds=[(0, 1), (0.1, 10)], tol=1e-7, plot=True, **kwargs):
+    def fit(self, x, ldsc=None, h2=0, n=0, distcdf=st.laplace.cdf, bounds=[(0, 1), (0.1, 10)], tol=1e-4, plot=True, **kwargs):
         """
         Parameters
         ----------
         x : list-like
             t-statistics to adjust
+        ldsc : list-like
+            LD scores with the same dimension of x
+        h2 : float
+            heritability of phenotype, between 0 and 1
+        n : int
+            sample size
         distcdf : function
             cumulative distribution function of prior of non-zero t-statistics
-        bounds : list
-            each element is tuple (min, max) bounds for parameters
         tol : float
-            convergence threshold
+            log-likelihood convergence threshold
         plot : bool
             whether plot estimation result
         Additional keyword arguments will be passed as keywords to opt.differential_evolution
         """
+        if ldsc is None:
+            ldsc = np.ones(len(x))
+        self.n = n
+        self.h2 = h2
         self.p = len(x)
         self.distcdf = distcdf
-        self.xfreq = self.freq(x)
+        self.ldsc_sigma = self.h2 * self.n / ((1 - self.h2) * self.p)
+        self.ldsc_mean = np.mean(ldsc)
+        self.ldsc_max = np.max(ldsc)
+        self.c_min = 1 / np.sqrt(1 + self.ldsc_max * self.ldsc_sigma)
+        self.c_mean = 1 / np.sqrt(1 + self.ldsc_mean * self.ldsc_sigma)
+        self.c_table = np.arange(1, max(self.c_min - 0.04, 0), -0.02)
+        self.c_bins = np.arange(1.01, max(self.c_min - 0.06, -0.01), -0.02)
+        self.ldsc_table = 1 / self.c_table ** 2 - 1
+        self.ldsc_bins = 1 / self.c_bins ** 2 - 1
+
+        group = self.cut_bins(ldsc * self.ldsc_sigma, self.ldsc_bins)
+        self.x_count = np.vstack([self.count(x[group==i]) for i in range(len(self.ldsc_table))])
+        self.nullpdf = self.pdf_x(0, 1e-7)
         self.model_fit = opt.differential_evolution(self.loss, bounds=bounds, tol=tol, **kwargs)
-        self.alpha, self.sigma = self.model_fit.x
-        self.adjuster(self.alpha, self.sigma, plot=plot)
+        self.pi, self.sigma = self.model_fit.x
+        self.adjuster(self.pi, self.sigma, plot=plot)
         return(self)
     
-    def adjuster(self, alpha, sigma, plot=True):
-        self.xpdf = self.pdf_x(alpha, sigma)
-        self.mudiff = self.diff_mu(alpha, sigma)
-        self.ddiff = self.diff_d(sigma)
-        Px = (self.G/self.xpdf).T
-        self.Ex = alpha*Px@(self.xtable*self.ddiff)
-        self.Vx = alpha*Px@(self.xtable**2*self.ddiff) - self.Ex**2
-        Pmu = self.delta*(self.G.T/self.xpdf)@self.G
-        self.Emu = alpha*Pmu@(self.xtable*self.ddiff)
-        self.Vmu = alpha*Pmu@(self.xtable**2*self.ddiff) - self.Emu**2
+    def adjuster_uni(self, pi, sigma):
+        xpdf = self.pdf_x(pi, sigma)
+        mudiff = self.diff_mu(pi, sigma)
+        ddiff = self.diff_d(sigma)
+        Px = (self.G / xpdf).T
+        Ex = pi * Px @ (self.xtable * ddiff)
+        Pmu = self.delta * (self.G.T / xpdf) @ self.G
+        Emu = pi * Pmu @ (self.xtable * ddiff)
+        return(Ex, Emu)
+
+    def adjuster(self, pi, sigma, plot=True):
+        Ex_table, Emu_table = zip(*[self.adjuster_uni(pi, c * sigma) for c in self.c_table])
+        Ex_table = np.vstack(Ex_table).T
+        Emu_table = np.vstack(Emu_table).T
+        self.adjuster_x = intp.RectBivariateSpline(self.xtable, self.ldsc_table, Ex_table, kx=1, ky=1)
+        self.adjuster_mu = intp.RectBivariateSpline(self.xtable, self.ldsc_table, Emu_table, kx=1, ky=1)
+        self.xpdf = self.pdf_x(pi, sigma * self.c_mean)
+        self.mudiff = self.diff_mu(pi, sigma * self.c_mean)
+        self.ddiff = self.diff_d(sigma * self.c_mean)
+        Px = (self.G / self.xpdf).T
+        self.Ex = pi * Px @ (self.xtable * self.ddiff)
+        self.Vx = pi * Px @ (self.xtable ** 2 * self.ddiff) - self.Ex ** 2
+        Pmu = self.delta * (self.G.T / self.xpdf) @ self.G
+        self.Emu = pi * Pmu @ (self.xtable * self.ddiff)
+        self.Vmu = pi * Pmu @ (self.xtable ** 2 * self.ddiff) - self.Emu**2
         self.mucdf = self.mudiff.cumsum()
-        self.adjuster_x = intp.interp1d(self.xtable, self.Ex)
-        self.adjuster_mu = intp.interp1d(self.xtable, self.Emu)
         self.cdf_mu = intp.interp1d(self.xbins[1:], self.mucdf)
+        self.deviance_null = self.loss([0, 1e-7]) - self.p * (np.log(2 * np.pi) + 1)
+        self.deviance = self.loss([self.pi, self.sigma]) - self.p * (np.log(2 * np.pi) + 1)
         if plot:
-            (pd.DataFrame(np.array([1-(1-alpha)*Px[:, np.argmin(np.abs(self.xtable))], 
-                                   self.Ex/(self.xtable+1e-8), 
-                                   self.Emu/(self.xtable+1e-8)]).T, 
+            (pd.DataFrame(np.array([1 - (1 - pi) * Px[:, np.argmin(np.abs(self.xtable))], 
+                                   self.Ex / (self.xtable + 1e-8), 
+                                   self.Emu / (self.xtable + 1e-8)]).T, 
                          self.xtable, ["P(non-zero)", "t-value reduce", "Effect size reduce"])
              .rename_axis("T-stat")
              .plot(ylim=[0, 1], xlim=self.xlim, grid=True, 
-                   title="Inference of mu given t-value \n alpha:{:.3f}, sigma:{:.3f}".format(alpha, sigma)))
+                   title="Inference of mu given t-value \n pi: {:.3f}, sigma: {:.3f}, mean c: {:.2f}".format(pi, sigma, self.c_mean)))
             (pd.DataFrame(np.outer(np.sqrt(self.Vx), [-2, 0, 2]), 
                           self.xtable, ["Lower", "E(mu|x)", "Upper"])
              .add(self.Ex, axis=0)
@@ -909,28 +947,29 @@ class DoubleWeightedTstat(BaseEstimator, TransformerMixin):
              .plot(xlim=self.xlim, ylim=self.xlim, grid=True, title="CI of mu given effect size (mu0)"))
         return(self)
     
-    def transform(self, x, plot=True):
-        self.xfreq = self.freq(x)
-        x_adj = self.adjuster_x(x)
+    def transform(self, x, ldsc=None, plot=True):
+        if ldsc is None:
+            ldsc = np.ones(len(x))
+        x_adj = self.adjuster_x(x, ldsc * self.ldsc_sigma, grid=False)
         w_adj = x_adj/x
         self.dof = (w_adj.sum()**2)/(w_adj**2).sum()
         if plot:
-            x_adj_freq = self.freq(x_adj)
-            (pd.DataFrame(np.array([self.xfreq, self.mudiff, self.xpdf*self.delta, x_adj_freq]).T, 
-                          self.xtable, ["Count", "PriorPDF", "PostPDF", "Adjusted"]).rename_axis("T-stat")
-             .plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True, title="df: {}, adjusted df: {:.2f}\nNull Deviance: {:.4f}, Deviance: {:.4f}".format(len(x), self.dof, self.loss([0, 1e-7])-np.log(2*np.pi)-1, self.loss([self.alpha, self.sigma])-np.log(2*np.pi)-1)))
+            x_adj_count = self.count(x_adj)
+            (pd.DataFrame(np.array([self.x_count.sum(axis=0)/len(x), self.mudiff, self.xpdf*self.delta, x_adj_count/len(x), self.nullpdf*self.delta]).T, 
+                          self.xtable, ["Count", "PriorDist", "PostDist", "Adjusted", "NullDist"]).rename_axis("T-stat")
+             .plot(logy = True, ylim = [0.5/len(x), 1], xlim=self.xlim, grid=True, title="df: {}, adjusted df: {:.2f}\nNull Deviance: {:.3f}, Deviance: {:.3f}".format(len(x), self.dof, self.deviance_null, self.deviance)))
         return(x_adj)
     
     def summary(self, cdf=[0.5, 0.9, 0.95, 0.99, 0.999], mu=None, M=1, plot=False):
-        self.adjuster(self.alpha, self.sigma*np.sqrt(M), plot=plot)
+        self.adjuster(self.pi, self.sigma*np.sqrt(M), plot=plot)
         if mu is None:
             mu = np.array([opt.newton(lambda x: self.cdf_mu(x) - (1+i)/2, 0) for i in cdf])
         dist_var = np.sum(self.xtable**2*np.diff(self.distcdf(self.xbins)))
         dist_kurt = np.sum(self.xtable**4*np.diff(self.distcdf(self.xbins)))/dist_var**2 - 3
-        out_S = pd.Series([M, self.alpha, self.sigma*np.sqrt(M), dist_var, dist_kurt, self.loss([0, 1e-7])-np.log(2*np.pi)-1, self.loss([self.alpha, self.sigma])-np.log(2*np.pi)-1, self.p, self.dof], ["Sample Adjust (M)", "Effect ratio (alpha)", "Effect scale (sigma)", "Dist variance", "Dist kurtosis", "Null Deviance", "Deviance", "df", "Adjusted df"])
-        out_df = pd.DataFrame({"CDF": 2*self.cdf_mu(mu)-1, "power": self.adjuster_mu(mu)/mu}, mu).rename_axis("effect t size")
+        out_S = pd.Series([self.n, M, self.h2, self.ldsc_mean, self.ldsc_max, self.c_mean, self.c_min, self.pi, self.sigma*np.sqrt(M), np.sqrt(self.h2*self.n/(self.p*(1-self.h2)*dist_var)), dist_var, dist_kurt, self.deviance_null, self.deviance, self.p, self.dof], ["Sample size (N)", "Sample adjust (M)", "heritability (h2)", "Mean LD", "Max LD", "Mean c", "Min c", "Effect ratio (pi)", "Effect scale (sigma)", "Derived sqrt(pi)*sigma", "Dist variance", "Dist kurtosis", "Null Deviance", "Deviance", "df", "Adjusted df"])
+        out_df = pd.DataFrame({"CDF": 2*self.cdf_mu(mu)-1, "power": self.adjuster_mu(mu, self.ldsc_sigma * self.ldsc_mean, grid=False)/mu}, mu).rename_axis("effect t size")
         return(out_S, out_df)
-
+    
 
 ## deprecated
 def MLstatsmodel(xt, yt, xv=None, yv=None, random_state=0, f_model=sm.GLM, par_model={"family": sm.families.Binomial}, ic_offset=[], **kwargs):
